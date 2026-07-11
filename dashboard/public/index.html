@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acoustic ATCS Proxy Tuner</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
+
+    /* Header */
+    .header { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: #16213e; border-bottom: 1px solid #0f3460; flex-shrink: 0; flex-wrap: wrap; }
+    .header h1 { font-size: 16px; font-weight: 600; margin-right: auto; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .status-dot.green { background: #4ade80; }
+    .status-dot.red { background: #f87171; }
+    .status-dot.yellow { background: #facc15; }
+    .btn { padding: 4px 12px; border: 1px solid #0f3460; border-radius: 4px; background: #0f3460; color: #e0e0e0; cursor: pointer; font-size: 12px; white-space: nowrap; }
+    .btn:hover { background: #1a4a8a; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn.danger { border-color: #991b1b; background: #7f1d1d; }
+    .btn.danger:hover { background: #991b1b; }
+    select { padding: 4px 8px; border: 1px solid #0f3460; border-radius: 4px; background: #16213e; color: #e0e0e0; font-size: 12px; }
+
+    /* Main area */
+    .main-area { display: flex; flex: 1; min-height: 0; }
+    .graph-pane { flex: 1; min-width: 0; position: relative; }
+    .log-pane { width: 340px; min-width: 200px; border-left: 1px solid #0f3460; display: flex; flex-direction: column; flex-shrink: 0; }
+    .divider { width: 4px; cursor: col-resize; background: #0f3460; flex-shrink: 0; }
+    .divider:hover { background: #1a4a8a; }
+
+    /* Event log */
+    .log-header { padding: 6px 10px; border-bottom: 1px solid #0f3460; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .log-content { flex: 1; overflow-y: auto; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 11px; padding: 4px 8px; background: #0d1117; white-space: pre-wrap; word-break: break-all; }
+    .log-content div { padding: 1px 0; border-bottom: 1px solid #1a1a2e; }
+
+    /* State indicator */
+    .state-indicator { display: flex; flex-shrink: 0; border-top: 1px solid #0f3460; }
+    .state-box { flex: 1; padding: 8px 10px; text-align: center; min-width: 0; }
+    .state-box + .state-box { border-left: 1px solid #0f3460; }
+    .state-box .state-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: #94a3b8; margin-bottom: 2px; }
+    .state-box .state-name { font-size: 18px; font-weight: 700; }
+    .state-box .state-time { font-size: 10px; color: #94a3b8; margin-top: 2px; font-family: 'Cascadia Code', 'Fira Code', monospace; }
+
+    /* Controls bar */
+    .controls-bar { display: flex; align-items: center; gap: 12px; padding: 6px 16px; background: #16213e; border-top: 1px solid #0f3460; border-bottom: 1px solid #0f3460; flex-shrink: 0; font-size: 12px; }
+
+    /* Parameters pane */
+    .params-pane { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 16px; background: #16213e; flex-shrink: 0; border-top: 1px solid #0f3460; }
+    .param-card { background: #1a1a2e; border: 1px solid #0f3460; border-radius: 6px; padding: 8px 12px; min-width: 150px; flex: 1; max-width: 200px; }
+    .param-card label { display: block; font-size: 10px; text-transform: uppercase; color: #94a3b8; margin-bottom: 2px; }
+    .param-card .value { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+    .param-card input[type="range"] { width: 100%; height: 4px; appearance: none; background: #0f3460; border-radius: 2px; outline: none; }
+    .param-card input[type="range"]::-webkit-slider-thumb { appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #4ade80; cursor: pointer; }
+    .param-card input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: #4ade80; cursor: pointer; border: none; }
+    .param-card input[type="checkbox"] { width: 18px; height: 18px; accent-color: #4ade80; }
+
+    .graph-pane #plotly-graph { width: 100%; height: 100%; }
+
+    .section-label { color: #94a3b8; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-right: 8px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>⚡ Acoustic ATCS Proxy Tuner</h1>
+
+    <span class="section-label">Serial</span>
+    <select id="port-select" style="width:160px"><option value="">(select port)</option></select>
+    <button class="btn" id="btn-connect">Connect</button>
+    <button class="btn danger" id="btn-disconnect" disabled>Disconnect</button>
+    <span id="serial-status" style="font-size:12px;color:#94a3b8">—</span>
+
+    <span class="section-label" style="margin-left:8px">MQTT</span>
+    <span class="status-dot red" id="mqtt-dot"></span>
+    <span id="mqtt-label" style="font-size:12px">disconnected</span>
+    <button class="btn" id="btn-mqtt-connect">Connect</button>
+    <button class="btn danger" id="btn-mqtt-disconnect" disabled>Disconnect</button>
+  </div>
+
+  <div class="main-area">
+    <div class="graph-pane">
+      <div id="plotly-graph"></div>
+    </div>
+    <div class="divider" id="divider"></div>
+    <div class="log-pane">
+      <div class="log-header">
+        <span>Event Log</span>
+        <button class="btn" id="btn-clear-log" style="margin-left:auto">Clear</button>
+        <label style="display:flex;align-items:center;gap:3px"><input type="checkbox" id="chk-autoscroll" checked> Auto</label>
+      </div>
+      <div class="log-content" id="log-content"></div>
+      <div class="state-indicator">
+        <div class="state-box" id="state-prev">
+          <div class="state-label">Previous</div>
+          <div class="state-name" id="state-prev-name">—</div>
+          <div class="state-time" id="state-prev-time"></div>
+        </div>
+        <div class="state-box" id="state-curr">
+          <div class="state-label">Current</div>
+          <div class="state-name" id="state-curr-name">IDLE</div>
+          <div class="state-time" id="state-curr-time"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls-bar">
+    <label>Time Window:</label>
+    <select id="window-select">
+      <option value="5">5s</option>
+      <option value="10">10s</option>
+      <option value="30" selected>30s</option>
+      <option value="60">60s</option>
+      <option value="120">120s</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:3px"><input type="checkbox" id="chk-autoscroll-graph" checked> AutoScroll</label>
+    <span id="data-points" style="color:#94a3b8;margin-left:auto">0 points</span>
+  </div>
+
+  <div class="params-pane" id="params-pane"></div>
+
+  <script>
+    const socket = io();
+
+    // ── DOM refs ───────────────────────────────────────────
+    const portSelect = document.getElementById('port-select');
+    const btnConnect = document.getElementById('btn-connect');
+    const btnDisconnect = document.getElementById('btn-disconnect');
+    const serialStatus = document.getElementById('serial-status');
+    const mqttDot = document.getElementById('mqtt-dot');
+    const mqttLabel = document.getElementById('mqtt-label');
+    const btnMqttConnect = document.getElementById('btn-mqtt-connect');
+    const btnMqttDisconnect = document.getElementById('btn-mqtt-disconnect');
+    const logContent = document.getElementById('log-content');
+    const chkAutoscroll = document.getElementById('chk-autoscroll');
+    const btnClearLog = document.getElementById('btn-clear-log');
+    const windowSelect = document.getElementById('window-select');
+    const chkAutoscrollGraph = document.getElementById('chk-autoscroll-graph');
+    const dataPointsSpan = document.getElementById('data-points');
+    const divider = document.getElementById('divider');
+
+    // ── Port listing ──────────────────────────────────────
+    function refreshPorts() {
+      socket.emit('list_ports');
+    }
+
+    socket.on('connect', () => {
+      refreshPorts();
+    });
+
+    socket.on('port_list', (ports) => {
+      const currentVal = portSelect.value;
+      portSelect.innerHTML = '<option value="">(select port)</option>' +
+        ports.map(p => `<option value="${p.path}">${p.path}${p.manufacturer ? ' — ' + p.manufacturer : ''}</option>`).join('');
+      portSelect.value = currentVal;
+    });
+
+    // Refresh ports when user opens the dropdown
+    portSelect.addEventListener('mousedown', refreshPorts);
+    portSelect.addEventListener('focus', refreshPorts);
+
+    // ── Serial connect/disconnect ─────────────────────────
+    btnConnect.addEventListener('click', () => {
+      const port = portSelect.value;
+      if (!port) return;
+      btnConnect.disabled = true;
+      socket.emit('serial_connect', port);
+    });
+
+    btnDisconnect.addEventListener('click', () => {
+      socket.emit('serial_disconnect');
+    });
+
+    socket.on('serial_status', (status) => {
+      if (status.connected) {
+        serialStatus.textContent = `✓ ${status.port}`;
+        serialStatus.style.color = '#4ade80';
+        btnConnect.disabled = true;
+        btnDisconnect.disabled = false;
+      } else {
+        serialStatus.textContent = status.error || 'disconnected';
+        serialStatus.style.color = status.error ? '#f87171' : '#94a3b8';
+        btnConnect.disabled = false;
+        btnDisconnect.disabled = true;
+      }
+    });
+
+    // ── MQTT connect/disconnect ───────────────────────────
+    btnMqttConnect.addEventListener('click', () => {
+      socket.emit('mqtt_connect');
+      btnMqttConnect.disabled = true;
+    });
+
+    btnMqttDisconnect.addEventListener('click', () => {
+      socket.emit('mqtt_disconnect');
+    });
+
+    socket.on('mqtt_status', (status) => {
+      if (status.connected) {
+        mqttDot.className = 'status-dot green';
+        mqttLabel.textContent = `connected ${status.broker.replace('mqtt://','')}`;
+        btnMqttConnect.disabled = true;
+        btnMqttDisconnect.disabled = false;
+      } else {
+        mqttDot.className = 'status-dot red';
+        mqttLabel.textContent = 'disconnected';
+        btnMqttConnect.disabled = false;
+        btnMqttDisconnect.disabled = true;
+      }
+    });
+
+    // ── Event log ─────────────────────────────────────────
+    socket.on('event_log', (entry) => {
+      const div = document.createElement('div');
+      div.textContent = `[${entry.time}] ${entry.text}`;
+      logContent.appendChild(div);
+      if (chkAutoscroll.checked) {
+        logContent.scrollTop = logContent.scrollHeight;
+      }
+      while (logContent.children.length > 5000) {
+        logContent.removeChild(logContent.firstChild);
+      }
+    });
+
+    btnClearLog.addEventListener('click', () => {
+      logContent.innerHTML = '';
+    });
+
+    // ── Divider drag for resizing log pane ──────────────
+    let isDragging = false;
+    divider.addEventListener('mousedown', (e) => { isDragging = true; e.preventDefault(); });
+    document.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      const logPane = document.querySelector('.log-pane');
+      const mainArea = document.querySelector('.main-area');
+      const rect = mainArea.getBoundingClientRect();
+      const newWidth = Math.max(200, Math.min(rect.width - 200, rect.right - e.clientX));
+      logPane.style.width = newWidth + 'px';
+    });
+    document.addEventListener('mouseup', () => { isDragging = false; });
+
+    // ── Data Buffers ──────────────────────────────────────
+    const MAX_POINTS = 5000;
+    const data = {
+      time: [],
+      main_db: [], sec_db: [], amb_db: [],
+      main_snr: [], sec_snr: [],
+      signal: [], pulse: [],
+    };
+    let stateShapes = [];
+
+    function stateColor(s) {
+      switch (s) {
+        case 'IDLE': return '#4ade80';
+        case 'PROBING': return '#facc15';
+        case 'ACTIVE': return '#f87171';
+        default: return '#94a3b8';
+      }
+    }
+
+    // ── Plotly init with empty traces ──────────────────────
+    const graphDiv = document.getElementById('plotly-graph');
+    const traceDefs = [
+      { name: 'main (dB)', color: '#4ade80', dash: 'solid', yaxis: 'y', shape: 'linear', width: 1.5 },
+      { name: 'sec (dB)', color: '#60a5fa', dash: 'solid', yaxis: 'y', shape: 'linear', width: 1.5 },
+      { name: 'amb (dB)', color: '#94a3b8', dash: 'solid', yaxis: 'y', shape: 'linear', width: 1.5 },
+      { name: 'main_snr', color: '#4ade80', dash: 'dash', yaxis: 'y', shape: 'linear', width: 1 },
+      { name: 'sec_snr', color: '#60a5fa', dash: 'dash', yaxis: 'y', shape: 'linear', width: 1 },
+      { name: 'signal', color: '#facc15', dash: 'solid', yaxis: 'y2', shape: 'hv', width: 1 },
+      { name: 'pulse', color: '#c084fc', dash: 'solid', yaxis: 'y2', shape: 'hv', width: 1 },
+    ];
+    const NUM = traceDefs.length;
+
+    const initTraces = traceDefs.map(t => ({
+      name: t.name, x: [], y: [],
+      type: 'scatter', mode: 'lines',
+      line: { width: t.width, dash: t.dash, color: t.color, shape: t.shape },
+      yaxis: t.yaxis
+    }));
+
+    const plotConfig = {
+      responsive: true,
+      displayModeBar: true,
+      modeBarButtonsToRemove: ['lasso2d', 'select2d', 'hoverClosestCartesian', 'hoverCompareCartesian'],
+      displaylogo: false
+    };
+
+    const layoutBase = {
+      title: { text: 'Real-time DSP & FSM Data', font: { color: '#e0e0e0', size: 14 } },
+      paper_bgcolor: '#0d1117', plot_bgcolor: '#0d1117',
+      font: { color: '#94a3b8' },
+      margin: { l: 50, r: 30, t: 30, b: 40 },
+      hovermode: 'x unified',
+      legend: { font: { color: '#e0e0e0', size: 10 }, orientation: 'h', y: 1.12 },
+      dragmode: 'zoom',
+      xaxis: { title: 'Time (s)', color: '#94a3b8', gridcolor: '#1a1a2e', zerolinecolor: '#1a1a2e' },
+      yaxis: { title: 'dB', color: '#94a3b8', gridcolor: '#1a1a2e', zerolinecolor: '#1a1a2e', range: [-120, 60] },
+      yaxis2: { overlaying: 'y', side: 'right', range: [-0.1, 1.1], showgrid: false, visible: false },
+      shapes: []
+    };
+
+    Plotly.newPlot(graphDiv, initTraces, layoutBase, plotConfig);
+
+    // ── Streaming: restyle from local buffers on each tick ──
+    // We buffer in local arrays on each event, then Plotly.restyle all traces
+    // at ~60fps via requestAnimationFrame. restyle preserves trace objects
+    // (so legend toggle state stays), unlike Plotly.react which replaces them.
+    let needsUpdate = false;
+    let rafPending = false;
+
+    function tick() {
+      rafPending = false;
+      if (!needsUpdate) return;
+      needsUpdate = false;
+
+      const now = Date.now() / 1000;
+      const ws = parseInt(windowSelect.value);
+
+      // Update all traces with current buffered data via restyle
+      const fields = [data.main_db, data.sec_db, data.amb_db, data.main_snr, data.sec_snr, data.signal, data.pulse];
+      const time = data.time;
+      for (let i = 0; i < NUM; i++) {
+        Plotly.restyle(graphDiv, { x: [time], y: [fields[i]] }, i);
+      }
+
+      // Update shapes and axis
+      const u = { shapes: stateShapes.slice(-200) };
+      if (chkAutoscrollGraph.checked) {
+        u['xaxis.range'] = [now - ws, now + 1];
+      }
+      Plotly.relayout(graphDiv, u);
+      dataPointsSpan.textContent = `${time.length} points`;
+    }
+
+    function requestTick() {
+      needsUpdate = true;
+      if (!rafPending) {
+        rafPending = true;
+        requestAnimationFrame(tick);
+      }
+    }
+
+    // ── Socket event handlers ─────────────────────────────
+    socket.on('dsp_data', (d) => {
+      const t = d.time;
+      data.time.push(t);
+      data.main_db.push(d.main_db);
+      data.sec_db.push(d.sec_db);
+      data.amb_db.push(d.amb_db);
+      data.main_snr.push(d.main_snr);
+      data.sec_snr.push(d.sec_snr);
+      const lastSig = data.signal.length > 0 ? data.signal[data.signal.length - 1] : 0;
+      const lastPulse = data.pulse.length > 0 ? data.pulse[data.pulse.length - 1] : 0;
+      data.signal.push(lastSig);
+      data.pulse.push(lastPulse);
+      requestTick();
+    });
+
+    socket.on('fsm_data', (d) => {
+      const t = d.time;
+      const lastMain = data.main_db.length > 0 ? data.main_db[data.main_db.length - 1] : -120;
+      const lastSec = data.sec_db.length > 0 ? data.sec_db[data.sec_db.length - 1] : -120;
+      const lastAmb = data.amb_db.length > 0 ? data.amb_db[data.amb_db.length - 1] : -120;
+      data.time.push(t);
+      data.main_db.push(lastMain);
+      data.sec_db.push(lastSec);
+      data.amb_db.push(lastAmb);
+      data.main_snr.push(d.main_snr);
+      data.sec_snr.push(d.sec_snr);
+      data.signal.push(d.signal);
+      data.pulse.push(d.pulse);
+      requestTick();
+    });
+
+    let lastStateTime = null;
+    let prevState = null;
+    let currState = 'IDLE';
+    const statePrevName = document.getElementById('state-prev-name');
+    const statePrevTime = document.getElementById('state-prev-time');
+    const stateCurrName = document.getElementById('state-curr-name');
+    const stateCurrTime = document.getElementById('state-curr-time');
+    stateCurrName.style.color = stateColor('IDLE');
+
+    function updateStateIndicator(fromState, toState, timeSec) {
+      prevState = fromState;
+      currState = toState;
+      statePrevName.textContent = fromState;
+      statePrevName.style.color = stateColor(fromState);
+      statePrevTime.textContent = new Date(timeSec * 1000).toLocaleTimeString();
+      stateCurrName.textContent = toState;
+      stateCurrName.style.color = stateColor(toState);
+      stateCurrTime.textContent = new Date(timeSec * 1000).toLocaleTimeString();
+    }
+
+    socket.on('state_change', (d) => {
+      // Close the previous state span with a proper rectangle
+      if (lastStateTime !== null) {
+        stateShapes.push({
+          type: 'rect',
+          x0: lastStateTime,
+          y0: -120,
+          x1: d.time,
+          y1: 80,
+          fillcolor: stateColor(d.from),
+          opacity: 0.12,
+          line: { width: 0 },
+          layer: 'below'
+        });
+      }
+      lastStateTime = d.time;
+      updateStateIndicator(d.from, d.to, d.time);
+      // Also log state change
+      const div = document.createElement('div');
+      div.textContent = `[${new Date(d.time * 1000).toLocaleTimeString()}] [FSM] ${d.from} → ${d.to}`;
+      div.style.color = stateColor(d.to);
+      logContent.appendChild(div);
+      if (chkAutoscroll.checked) logContent.scrollTop = logContent.scrollHeight;
+      while (logContent.children.length > 5000) logContent.removeChild(logContent.firstChild);
+    });
+
+    // ── Window / autoscroll changes ───────────────────────
+    windowSelect.addEventListener('change', requestTick);
+    chkAutoscrollGraph.addEventListener('change', requestTick);
+
+    // ── Parameter Cards ────────────────────────────────────
+    const params = [
+      { id: 'main_snr_db', label: 'Main SNR', min: 0, max: 50, step: 0.5, default: 25.0, unit: 'dB' },
+      { id: 'sec_snr_db', label: 'Sec SNR', min: 0, max: 50, step: 0.5, default: 22.0, unit: 'dB' },
+      { id: 'confirm_sec', label: 'Confirm', min: 0.1, max: 5.0, step: 0.1, default: 0.7, unit: 's' },
+      { id: 'probing_timeout_sec', label: 'Probing Timeout', min: 0.5, max: 10.0, step: 0.1, default: 3.0, unit: 's' },
+      { id: 'active_timeout_sec', label: 'Active Timeout', min: 0.5, max: 10.0, step: 0.1, default: 2.5, unit: 's' }
+    ];
+
+    const paramValues = {};
+    const paramPane = document.getElementById('params-pane');
+
+    params.forEach(p => {
+      paramValues[p.id] = p.default;
+      const card = document.createElement('div');
+      card.className = 'param-card';
+      card.innerHTML = `
+        <label>${p.label}</label>
+        <div class="value" id="val-${p.id}">${p.default.toFixed(p.step >= 1 ? 0 : 1)} ${p.unit}</div>
+        <input type="range" id="slider-${p.id}" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.default}">
+      `;
+      paramPane.appendChild(card);
+      const slider = card.querySelector('input[type="range"]');
+      const valDisplay = card.querySelector('.value');
+      slider.addEventListener('input', () => {
+        const v = parseFloat(slider.value);
+        paramValues[p.id] = v;
+        valDisplay.textContent = `${v.toFixed(p.step >= 1 ? 0 : 1)} ${p.unit}`;
+      });
+    });
+
+    // Debug checkbox card
+    const debugCard = document.createElement('div');
+    debugCard.className = 'param-card';
+    debugCard.style.display = 'flex';
+    debugCard.style.flexDirection = 'column';
+    debugCard.style.justifyContent = 'center';
+    debugCard.innerHTML = `
+      <label>Debug</label>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+        <input type="checkbox" id="debug_enabled">
+        <span style="font-size:12px">Enable verbose debug</span>
+      </div>
+    `;
+    paramPane.appendChild(debugCard);
+
+    // Apply button card
+    const applyCard = document.createElement('div');
+    applyCard.className = 'param-card';
+    applyCard.style.display = 'flex';
+    applyCard.style.alignItems = 'center';
+    applyCard.style.justifyContent = 'center';
+    applyCard.innerHTML = `<button class="btn" id="btn-apply" style="font-size:14px;padding:8px 24px;background:#166534;border-color:#22c55e">Apply</button>`;
+    paramPane.appendChild(applyCard);
+
+    document.getElementById('btn-apply').addEventListener('click', () => {
+      const config = { ...paramValues };
+      config.debug_enabled = document.getElementById('debug_enabled').checked;
+      // Only include values that differ from defaults
+      socket.emit('config_update', config);
+      const btn = document.getElementById('btn-apply');
+      btn.textContent = '✓ Sent';
+      btn.style.background = '#14532d';
+      setTimeout(() => {
+        btn.textContent = 'Apply';
+        btn.style.background = '#166534';
+      }, 2000);
+    });
+  </script>
+</body>
+</html>

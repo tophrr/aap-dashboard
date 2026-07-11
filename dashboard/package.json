@@ -1,0 +1,16 @@
+{
+  "name": "aap-tuner-dashboard",
+  "version": "1.0.0",
+  "description": "Real-time tuning dashboard for Acoustic ATCS Proxy edge device",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.0",
+    "socket.io": "^4.7.0",
+    "serialport": "^12.0.0",
+    "mqtt": "^5.0.0"
+  }
+}
