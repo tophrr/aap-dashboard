@@ -295,7 +295,7 @@
       hovermode: 'x unified',
       legend: { font: { color: '#e0e0e0', size: 10 }, orientation: 'h', y: 1.12 },
       dragmode: 'zoom',
-      xaxis: { title: 'Time (s)', color: '#94a3b8', gridcolor: '#1a1a2e', zerolinecolor: '#1a1a2e' },
+      xaxis: { title: 'Time', type: 'date', tickformat: '%H:%M:%S', hoverformat: '%H:%M:%S', color: '#94a3b8', gridcolor: '#1a1a2e', zerolinecolor: '#1a1a2e' },
       yaxis: { title: 'dB', color: '#94a3b8', gridcolor: '#1a1a2e', zerolinecolor: '#1a1a2e', range: [-120, 60] },
       yaxis2: { overlaying: 'y', side: 'right', range: [-0.1, 1.1], showgrid: false, visible: false },
       shapes: []
@@ -315,8 +315,8 @@
       if (!needsUpdate) return;
       needsUpdate = false;
 
-      const now = Date.now() / 1000;
-      const ws = parseInt(windowSelect.value);
+      const now = Date.now();
+      const ws = parseInt(windowSelect.value) * 1000;
 
       // Update all traces with current buffered data via restyle
       const fields = [data.main_db, data.sec_db, data.amb_db, data.main_snr, data.sec_snr, data.signal, data.pulse];
@@ -327,8 +327,10 @@
 
       // Update shapes and axis
       const u = { shapes: stateShapes.slice(-200) };
+      u['xaxis.type'] = 'date';
+      u['xaxis.tickformat'] = '%H:%M:%S';
       if (chkAutoscrollGraph.checked) {
-        u['xaxis.range'] = [now - ws, now + 1];
+        u['xaxis.range'] = [now - ws, now + 1000];
       }
       Plotly.relayout(graphDiv, u);
       dataPointsSpan.textContent = `${time.length} points`;
@@ -344,7 +346,7 @@
 
     // ── Socket event handlers ─────────────────────────────
     socket.on('dsp_data', (d) => {
-      const t = d.time;
+      const t = d.time * 1000;
       data.time.push(t);
       data.main_db.push(d.main_db);
       data.sec_db.push(d.sec_db);
@@ -359,7 +361,7 @@
     });
 
     socket.on('fsm_data', (d) => {
-      const t = d.time;
+      const t = d.time * 1000;
       const lastMain = data.main_db.length > 0 ? data.main_db[data.main_db.length - 1] : -120;
       const lastSec = data.sec_db.length > 0 ? data.sec_db[data.sec_db.length - 1] : -120;
       const lastAmb = data.amb_db.length > 0 ? data.amb_db[data.amb_db.length - 1] : -120;
@@ -401,7 +403,7 @@
           type: 'rect',
           x0: lastStateTime,
           y0: -120,
-          x1: d.time,
+          x1: d.time * 1000,
           y1: 80,
           fillcolor: stateColor(d.from),
           opacity: 0.12,
@@ -409,7 +411,7 @@
           layer: 'below'
         });
       }
-      lastStateTime = d.time;
+      lastStateTime = d.time * 1000;
       updateStateIndicator(d.from, d.to, d.time);
       // Also log state change
       const div = document.createElement('div');
