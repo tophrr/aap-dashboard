@@ -300,7 +300,7 @@
     document.addEventListener('mouseup', () => { isDragging = false; });
 
     // ── Data Buffers ──────────────────────────────────────
-    const MAX_POINTS = 5000;
+    const MAX_POINTS = 3000;
     const data = {
       time: [],
       main_db: [], sec_db: [], amb_db: [], amb_raw_db: [],
@@ -321,21 +321,21 @@
     // ── Plotly init with empty traces ──────────────────────
     const graphDiv = document.getElementById('plotly-graph');
     const traceDefs = [
-      { name: 'main (dB)', color: '#4ade80', dash: 'solid', yaxis: 'y', shape: 'linear', width: 1.5 },
-      { name: 'sec (dB)', color: '#60a5fa', dash: 'solid', yaxis: 'y', shape: 'linear', width: 1.5 },
-      { name: 'amb (dB)', color: '#94a3b8', dash: 'solid', yaxis: 'y', shape: 'linear', width: 1.5 },
-      { name: 'amb_raw (dB)', color: '#64748b', dash: 'dash', yaxis: 'y', shape: 'linear', width: 1.2 },
-      { name: 'main_snr', color: '#4ade80', dash: 'dot', yaxis: 'y', shape: 'linear', width: 1 },
-      { name: 'sec_snr', color: '#60a5fa', dash: 'dot', yaxis: 'y', shape: 'linear', width: 1 },
-      { name: 'signal', color: '#facc15', dash: 'solid', yaxis: 'y2', shape: 'hv', width: 1 },
-      { name: 'cycles', color: '#c084fc', dash: 'solid', yaxis: 'y2', shape: 'hv', width: 1 },
+      { name: 'main (dB)', color: '#4ade80', dash: 'solid', yaxis: 'y', width: 1.5 },
+      { name: 'sec (dB)', color: '#60a5fa', dash: 'solid', yaxis: 'y', width: 1.5 },
+      { name: 'amb (dB)', color: '#94a3b8', dash: 'solid', yaxis: 'y', width: 1.5 },
+      { name: 'amb_raw (dB)', color: '#64748b', dash: 'dash', yaxis: 'y', width: 1.2 },
+      { name: 'main_snr', color: '#4ade80', dash: 'dot', yaxis: 'y', width: 1 },
+      { name: 'sec_snr', color: '#60a5fa', dash: 'dot', yaxis: 'y', width: 1 },
+      { name: 'signal', color: '#facc15', dash: 'solid', yaxis: 'y2', width: 1 },
+      { name: 'cycles', color: '#c084fc', dash: 'solid', yaxis: 'y2', width: 1 },
     ];
     const NUM = traceDefs.length;
 
     const initTraces = traceDefs.map(t => ({
       name: t.name, x: [], y: [],
-      type: 'scatter', mode: 'lines',
-      line: { width: t.width, dash: t.dash, color: t.color, shape: t.shape },
+      type: 'scattergl', mode: 'lines',
+      line: { width: t.width, dash: t.dash, color: t.color },
       yaxis: t.yaxis
     }));
 
@@ -384,36 +384,133 @@
       mainResizeObserver.observe(mainArea);
     }
 
-    // ── Streaming: restyle from local buffers on each tick ──
-    // We buffer in local arrays on each event, then Plotly.restyle all traces
-    // at ~60fps via requestAnimationFrame. restyle preserves trace objects
-    // (so legend toggle state stays), unlike Plotly.react which replaces them.
+    // ── Streaming: Optimized single-batch requestAnimationFrame loop ──
     let needsUpdate = false;
-    let rafPending = false;
+    let lastFrameNum = null;
+
+    function requestTick() {
+      needsUpdate = true;
+    }
+
+    // Convert flat data series to step-wise data to emulate shape: 'hv' for WebGL scattergl
+    function makeStepData(time, values) {
+      if (time.length === 0) return { x: [], y: [] };
+      const stepX = [time[0]];
+      const stepY = [values[0]];
+      for (let i = 1; i < time.length; i++) {
+        stepX.push(time[i]);
+        stepY.push(values[i - 1]);
+        stepX.push(time[i]);
+        stepY.push(values[i]);
+      }
+      return { x: stepX, y: stepY };
+    }
+
+    // Deduplicate and merge dsp_data and fsm_data by frame number
+    function addOrUpdatePoint(frame, isDsp, d) {
+      const idx = data.time.length - 1;
+      const t = d.time * 1000;
+
+      if (idx >= 0 && frame === lastFrameNum) {
+        // Merge into the last point
+        if (isDsp) {
+          data.main_db[idx] = d.main_db;
+          data.sec_db[idx] = d.sec_db;
+          data.amb_db[idx] = d.amb_db;
+          data.amb_raw_db[idx] = d.amb_raw_db;
+          data.main_snr[idx] = d.main_snr;
+          data.sec_snr[idx] = d.sec_snr;
+        } else {
+          data.main_snr[idx] = d.main_snr;
+          data.sec_snr[idx] = d.sec_snr;
+          data.signal[idx] = d.signal;
+          data.cycles[idx] = d.cycles;
+        }
+      } else {
+        // Push a new point
+        lastFrameNum = frame;
+        data.time.push(t);
+        if (lastStateTime === null) {
+          lastStateTime = t;
+        }
+
+        if (isDsp) {
+          data.main_db.push(d.main_db);
+          data.sec_db.push(d.sec_db);
+          data.amb_db.push(d.amb_db);
+          data.amb_raw_db.push(d.amb_raw_db);
+          data.main_snr.push(d.main_snr);
+          data.sec_snr.push(d.sec_snr);
+          
+          const lastSig = idx >= 0 ? data.signal[idx] : 0;
+          const lastCycles = idx >= 0 ? data.cycles[idx] : 0;
+          data.signal.push(lastSig);
+          data.cycles.push(lastCycles);
+        } else {
+          const lastMain = idx >= 0 ? data.main_db[idx] : -120;
+          const lastSec = idx >= 0 ? data.sec_db[idx] : -120;
+          const lastAmb = idx >= 0 ? data.amb_db[idx] : -120;
+          const lastAmbRaw = idx >= 0 ? data.amb_raw_db[idx] : -120;
+          
+          data.main_db.push(lastMain);
+          data.sec_db.push(lastSec);
+          data.amb_db.push(lastAmb);
+          data.amb_raw_db.push(lastAmbRaw);
+          data.main_snr.push(d.main_snr);
+          data.sec_snr.push(d.sec_snr);
+          data.signal.push(d.signal);
+          data.cycles.push(d.cycles);
+        }
+
+        // Keep buffer bounded
+        if (data.time.length > MAX_POINTS) {
+          data.time.shift();
+          data.main_db.shift();
+          data.sec_db.shift();
+          data.amb_db.shift();
+          data.amb_raw_db.shift();
+          data.main_snr.shift();
+          data.sec_snr.shift();
+          data.signal.shift();
+          data.cycles.shift();
+        }
+      }
+      needsUpdate = true;
+    }
 
     function tick() {
-      rafPending = false;
-      if (!needsUpdate) return;
-      needsUpdate = false;
+      // Schedule next frame
+      requestAnimationFrame(tick);
+      if (data.time.length === 0) return;
 
       const now = Date.now();
       const ws = parseInt(windowSelect.value) * 1000;
-
-      // Update all traces with current buffered data via restyle
-      const fields = [data.main_db, data.sec_db, data.amb_db, data.amb_raw_db, data.main_snr, data.sec_snr, data.signal, data.cycles];
-      const time = data.time;
-      for (let i = 0; i < NUM; i++) {
-        Plotly.restyle(graphDiv, { x: [time], y: [fields[i]] }, i);
-      }
+      const isScrolling = chkAutoscrollGraph.checked;
 
       // Update shapes and axis
       const u = { shapes: stateShapes.slice(-200) };
+      
+      // Draw ongoing current state shape extending to the right edge of viewport
+      if (lastStateTime !== null) {
+        u.shapes.push({
+          type: 'rect',
+          x0: lastStateTime,
+          y0: -120,
+          x1: now + 1000,
+          y1: 80,
+          fillcolor: stateColor(currState),
+          opacity: 0.12,
+          line: { width: 0 },
+          layer: 'below'
+        });
+      }
+
       u['xaxis.type'] = 'date';
       u['xaxis.tickformat'] = '%H:%M:%S';
-      if (chkAutoscrollGraph.checked) {
+      
+      if (isScrolling) {
         u['xaxis.range'] = [now - ws, now + 1000];
       } else {
-        // Freeze current viewport — re-apply whatever range the graph already has
         const cl = graphDiv.layout;
         if (cl && cl.xaxis && cl.xaxis.range) {
           u['xaxis.range'] = cl.xaxis.range;
@@ -438,51 +535,46 @@
           }
         ]);
       }
-      Plotly.relayout(graphDiv, u);
-      dataPointsSpan.textContent = `${time.length} points`;
-    }
 
-    function requestTick() {
-      needsUpdate = true;
-      if (!rafPending) {
-        rafPending = true;
-        requestAnimationFrame(tick);
+      if (needsUpdate) {
+        needsUpdate = false;
+        
+        const fields = [
+          data.main_db, 
+          data.sec_db, 
+          data.amb_db, 
+          data.amb_raw_db, 
+          data.main_snr, 
+          data.sec_snr
+        ];
+        const time = data.time;
+        const updateData = {
+          x: Array(6).fill(time),
+          y: fields
+        };
+        const stepSignal = makeStepData(time, data.signal);
+        const stepCycles = makeStepData(time, data.cycles);
+        
+        updateData.x.push(stepSignal.x, stepCycles.x);
+        updateData.y.push(stepSignal.y, stepCycles.y);
+
+        Plotly.update(graphDiv, updateData, u, Array.from({length: NUM}, (_, i) => i));
+        dataPointsSpan.textContent = `${time.length} points`;
+      } else if (isScrolling) {
+        Plotly.relayout(graphDiv, u);
       }
     }
 
+    // Start render loop
+    requestAnimationFrame(tick);
+
     // ── Socket event handlers ─────────────────────────────
     socket.on('dsp_data', (d) => {
-      const t = d.time * 1000;
-      data.time.push(t);
-      data.main_db.push(d.main_db);
-      data.sec_db.push(d.sec_db);
-      data.amb_db.push(d.amb_db);
-      data.amb_raw_db.push(d.amb_raw_db);
-      data.main_snr.push(d.main_snr);
-      data.sec_snr.push(d.sec_snr);
-      const lastSig = data.signal.length > 0 ? data.signal[data.signal.length - 1] : 0;
-      const lastCycles = data.cycles.length > 0 ? data.cycles[data.cycles.length - 1] : 0;
-      data.signal.push(lastSig);
-      data.cycles.push(lastCycles);
-      requestTick();
+      addOrUpdatePoint(d.frame, true, d);
     });
 
     socket.on('fsm_data', (d) => {
-      const t = d.time * 1000;
-      const lastMain = data.main_db.length > 0 ? data.main_db[data.main_db.length - 1] : -120;
-      const lastSec = data.sec_db.length > 0 ? data.sec_db[data.sec_db.length - 1] : -120;
-      const lastAmb = data.amb_db.length > 0 ? data.amb_db[data.amb_db.length - 1] : -120;
-      const lastAmbRaw = data.amb_raw_db.length > 0 ? data.amb_raw_db[data.amb_raw_db.length - 1] : -120;
-      data.time.push(t);
-      data.main_db.push(lastMain);
-      data.sec_db.push(lastSec);
-      data.amb_db.push(lastAmb);
-      data.amb_raw_db.push(lastAmbRaw);
-      data.main_snr.push(d.main_snr);
-      data.sec_snr.push(d.sec_snr);
-      data.signal.push(d.signal);
-      data.cycles.push(d.cycles);
-      requestTick();
+      addOrUpdatePoint(d.frame, false, d);
     });
 
     let lastStateTime = null;
@@ -529,6 +621,7 @@
       logContent.appendChild(div);
       if (chkAutoscroll.checked) logContent.scrollTop = logContent.scrollHeight;
       while (logContent.children.length > 5000) logContent.removeChild(logContent.firstChild);
+      needsUpdate = true; // Trigger plot update to render new shape
     });
 
     // ── Window / autoscroll changes ───────────────────────
@@ -583,7 +676,6 @@
       savePersistedState({ autoscroll_log: chkAutoscroll.checked });
     });
 
-    // ── Clear Data ────────────────────────────────────────
     document.getElementById('btn-clear-data').addEventListener('click', () => {
       data.time = [];
       data.main_db = []; data.sec_db = []; data.amb_db = []; data.amb_raw_db = [];
@@ -591,13 +683,14 @@
       data.signal = []; data.cycles = [];
       stateShapes = [];
       lastStateTime = null;
+      lastFrameNum = null;
 
-      // Reset plotly traces to empty
-      const emptyTrace = { x: [], y: [] };
-      for (let i = 0; i < NUM; i++) {
-        Plotly.restyle(graphDiv, emptyTrace, i);
-      }
-      Plotly.relayout(graphDiv, { shapes: [] });
+      // Reset plotly traces to empty in a single batched update
+      const emptyTraces = {
+        x: Array(NUM).fill([]),
+        y: Array(NUM).fill([])
+      };
+      Plotly.update(graphDiv, emptyTraces, { shapes: [] }, Array.from({length: NUM}, (_, i) => i));
       dataPointsSpan.textContent = '0 points';
     });
 
