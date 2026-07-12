@@ -126,12 +126,14 @@
     </div>
     <div class="divider" id="divider"></div>
     <div class="log-pane">
-      <div class="log-header">
-        <span>Event Log</span>
+      <div class="log-header" style="padding: 0 10px; display: flex; align-items: center; justify-content: flex-start;">
+        <button class="tab-btn active" id="log-tab-btn-event" style="padding: 6px 10px; margin-right: 4px; font-size: 11px;">Event Log</button>
+        <button class="tab-btn" id="log-tab-btn-mqtt" style="padding: 6px 10px; font-size: 11px;">MQTT Log</button>
         <button class="btn" id="btn-clear-log" style="margin-left:auto">Clear</button>
-        <label style="display:flex;align-items:center;gap:3px"><input type="checkbox" id="chk-autoscroll" checked> Auto</label>
+        <label style="display:flex;align-items:center;gap:3px;font-size:11px;margin-left:6px;"><input type="checkbox" id="chk-autoscroll" checked> Auto</label>
       </div>
       <div class="log-content" id="log-content"></div>
+      <div class="log-content" id="log-content-mqtt" style="display: none;"></div>
       <div class="state-indicator">
         <div class="state-box" id="state-prev">
           <div class="state-label">Previous</div>
@@ -351,8 +353,50 @@
       }
     });
 
+    // ── MQTT Log tab receiver ──────────────────────────────
+    let activeLogTab = 'event';
+    const logContentMqtt = document.getElementById('log-content-mqtt');
+    socket.on('mqtt_log', (entry) => {
+      const div = document.createElement('div');
+      div.textContent = `[${entry.time}] ${entry.text}`;
+      logContentMqtt.appendChild(div);
+      if (chkAutoscroll.checked && activeLogTab === 'mqtt') {
+        logContentMqtt.scrollTop = logContentMqtt.scrollHeight;
+      }
+      while (logContentMqtt.children.length > 5000) {
+        logContentMqtt.removeChild(logContentMqtt.firstChild);
+      }
+    });
+
+    // ── Log Tab switching logic ───────────────────────────
+    const logTabEvent = document.getElementById('log-tab-btn-event');
+    const logTabMqtt = document.getElementById('log-tab-btn-mqtt');
+    const logContentEvent = document.getElementById('log-content');
+
+    logTabEvent.addEventListener('click', () => {
+      logTabEvent.classList.add('active');
+      logTabMqtt.classList.remove('active');
+      logContentEvent.style.display = 'block';
+      logContentMqtt.style.display = 'none';
+      activeLogTab = 'event';
+      if (chkAutoscroll.checked) logContentEvent.scrollTop = logContentEvent.scrollHeight;
+    });
+
+    logTabMqtt.addEventListener('click', () => {
+      logTabMqtt.classList.add('active');
+      logTabEvent.classList.remove('active');
+      logContentMqtt.style.display = 'block';
+      logContentEvent.style.display = 'none';
+      activeLogTab = 'mqtt';
+      if (chkAutoscroll.checked) logContentMqtt.scrollTop = logContentMqtt.scrollHeight;
+    });
+
     btnClearLog.addEventListener('click', () => {
-      logContent.innerHTML = '';
+      if (activeLogTab === 'event') {
+        logContentEvent.innerHTML = '';
+      } else {
+        logContentMqtt.innerHTML = '';
+      }
     });
 
     // ── Divider drag for resizing log pane ──────────────
@@ -802,7 +846,8 @@
       { id: 'wake_end_hour', label: 'Wake End Hour', min: 0, max: 23, step: 1, default: 5, unit: 'h', tab: 'other' },
       { id: 'led_enabled', label: 'LED Indicator Enabled', type: 'checkbox', default: true, tab: 'other' },
       { id: 'ota_enabled', label: 'OTA Enabled', type: 'checkbox', default: true, tab: 'other' },
-      { id: 'ota_port', label: 'OTA Port', min: 1024, max: 65535, step: 1, default: 3232, unit: '', tab: 'other' }
+      { id: 'ota_port', label: 'OTA Port', min: 1024, max: 65535, step: 1, default: 3232, unit: '', tab: 'other' },
+      { id: 'mqtt_logs_enabled', label: 'MQTT Logs Enabled', type: 'checkbox', default: false, tab: 'other' }
     ];
 
     const paramValues = {};

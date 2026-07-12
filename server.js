@@ -184,11 +184,18 @@ function connectMQTT() {
     mqttClient.subscribe('crossing/telemetry');
     mqttClient.subscribe('crossing/config/ack');
     mqttClient.subscribe('crossing/rtt');
+    mqttClient.subscribe('crossing/log');
     io.emit('mqtt_status', { connected: true, broker: MQTT_BROKER });
   });
 
   mqttClient.on('message', (topic, message) => {
     const payload = message.toString();
+
+    if (topic === 'crossing/log') {
+      processLine(payload, io, true);
+      return;
+    }
+
     io.emit('mqtt_message', { topic, payload, time: Date.now() / 1000 });
     // Also show in event log
     io.emit('event_log', {
@@ -215,8 +222,8 @@ function connectMQTT() {
   });
 }
 
-// ── Serial Line Parser ───────────────────────────────────────
-function processLine(line, io) {
+// ── Line Parser ───────────────────────────────────────
+function processLine(line, io, isMqtt = false) {
   // Detect [DSP] #N with frame number → graph, NOT event log
   const dspMatch = line.match(/^(?:\[\d{2}[.:]\d{2}[.:]\d{2}\]\s+)?\[DSP\]\s+#(\d+)\s+\|.*RMS=(-?\d+\.?\d*)dB.*main=(-?\d+\.?\d*)\s+sec=(-?\d+\.?\d*)\s+amb=(-?\d+\.?\d*)\s*(?:\(raw=(-?\d+\.?\d*)\))?\s*\|.*main_snr=(-?\d+\.?\d*)\s+sec_snr=(-?\d+\.?\d*)/);
   if (dspMatch) {
@@ -266,8 +273,9 @@ function processLine(line, io) {
     });
   }
 
-  // Everything else → event log
-  io.emit('event_log', {
+  // Everything else → event log or mqtt log
+  const eventName = isMqtt ? 'mqtt_log' : 'event_log';
+  io.emit(eventName, {
     time: new Date().toLocaleTimeString(),
     text: line
   });
