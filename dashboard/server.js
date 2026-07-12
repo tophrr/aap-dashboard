@@ -148,7 +148,7 @@ function connectMQTT() {
 // ── Serial Line Parser ───────────────────────────────────────
 function processLine(line, io) {
   // Detect [DSP] #N with frame number → graph, NOT event log
-  const dspMatch = line.match(/^\[DSP\]\s+#(\d+)\s+\|.*main=(-?\d+\.?\d*)\s+sec=(-?\d+\.?\d*)\s+amb=(-?\d+\.?\d*)\s*(?:\(raw=(-?\d+\.?\d*)\))?\s*\|.*main_snr=(-?\d+\.?\d*)\s+sec_snr=(-?\d+\.?\d*)/);
+  const dspMatch = line.match(/^(?:\[\d{2}[.:]\d{2}[.:]\d{2}\]\s+)?\[DSP\]\s+#(\d+)\s+\|.*main=(-?\d+\.?\d*)\s+sec=(-?\d+\.?\d*)\s+amb=(-?\d+\.?\d*)\s*(?:\(raw=(-?\d+\.?\d*)\))?\s*\|.*main_snr=(-?\d+\.?\d*)\s+sec_snr=(-?\d+\.?\d*)/);
   if (dspMatch) {
     io.emit('dsp_data', {
       frame: parseInt(dspMatch[1]),
@@ -164,22 +164,29 @@ function processLine(line, io) {
   }
 
   // Detect [FSM] #N with frame number → graph, NOT event log
-  const fsmMatch = line.match(/^\[FSM\]\s+#(\d+)\s+\|.*main_snr=(-?\d+\.?\d*)\s+sec_snr=(-?\d+\.?\d*)\s+\|.*signal=(\w+)\s+pulse=(\w+)\s+\|.*state=(\w+)/);
+  const fsmMatch = line.match(/^(?:\[\d{2}[.:]\d{2}[.:]\d{2}\]\s+)?\[FSM\]\s+#(\d+)\s+\|.*main_snr=(-?\d+\.?\d*)\s+sec_snr=(-?\d+\.?\d*)\s+\|.*signal=(\w+)\s+(?:pulse=(\w+)|cycles=(\d+))\s+\|.*state=(\w+)/);
   if (fsmMatch) {
+    let cycles = 0;
+    if (fsmMatch[5] !== undefined) {
+      cycles = fsmMatch[5] === 'OK' ? 1 : 0;
+    } else if (fsmMatch[6] !== undefined) {
+      cycles = parseInt(fsmMatch[6]);
+    }
+
     io.emit('fsm_data', {
       frame: parseInt(fsmMatch[1]),
       main_snr: parseFloat(fsmMatch[2]),
       sec_snr: parseFloat(fsmMatch[3]),
       signal: fsmMatch[4] === 'YES' ? 1 : 0,
-      pulse: fsmMatch[5] === 'OK' ? 1 : 0,
-      state: fsmMatch[6],
+      cycles: cycles,
+      state: fsmMatch[7],
       time: Date.now() / 1000
     });
     return;
   }
 
   // Detect state transitions like [FSM] IDLE → PROBING
-  const transitionMatch = line.match(/^\[FSM\]\s+(\w+)\s*→\s*(\w+)/);
+  const transitionMatch = line.match(/^(?:\[\d{2}[.:]\d{2}[.:]\d{2}\]\s+)?\[FSM\]\s+(\w+)\s*→\s*(\w+)/);
   if (transitionMatch) {
     io.emit('state_change', {
       from: transitionMatch[1],

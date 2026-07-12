@@ -249,7 +249,7 @@
       time: [],
       main_db: [], sec_db: [], amb_db: [], amb_raw_db: [],
       main_snr: [], sec_snr: [],
-      signal: [], pulse: [],
+      signal: [], cycles: [],
     };
     let stateShapes = [];
 
@@ -272,7 +272,7 @@
       { name: 'main_snr', color: '#4ade80', dash: 'dot', yaxis: 'y', shape: 'linear', width: 1 },
       { name: 'sec_snr', color: '#60a5fa', dash: 'dot', yaxis: 'y', shape: 'linear', width: 1 },
       { name: 'signal', color: '#facc15', dash: 'solid', yaxis: 'y2', shape: 'hv', width: 1 },
-      { name: 'pulse', color: '#c084fc', dash: 'solid', yaxis: 'y2', shape: 'hv', width: 1 },
+      { name: 'cycles', color: '#c084fc', dash: 'solid', yaxis: 'y2', shape: 'hv', width: 1 },
     ];
     const NUM = traceDefs.length;
 
@@ -300,7 +300,7 @@
       dragmode: 'zoom',
       xaxis: { title: 'Time', type: 'date', tickformat: '%H:%M:%S', hoverformat: '%H:%M:%S', color: '#94a3b8', gridcolor: '#1a1a2e', zerolinecolor: '#1a1a2e' },
       yaxis: { title: 'dB', color: '#94a3b8', gridcolor: '#1a1a2e', zerolinecolor: '#1a1a2e', range: [-120, 60] },
-      yaxis2: { overlaying: 'y', side: 'right', range: [-0.1, 1.1], showgrid: false, visible: false },
+      yaxis2: { overlaying: 'y', side: 'right', range: [-0.3, 3.3], showgrid: false, visible: false },
       shapes: []
     };
 
@@ -344,7 +344,7 @@
       const ws = parseInt(windowSelect.value) * 1000;
 
       // Update all traces with current buffered data via restyle
-      const fields = [data.main_db, data.sec_db, data.amb_db, data.amb_raw_db, data.main_snr, data.sec_snr, data.signal, data.pulse];
+      const fields = [data.main_db, data.sec_db, data.amb_db, data.amb_raw_db, data.main_snr, data.sec_snr, data.signal, data.cycles];
       const time = data.time;
       for (let i = 0; i < NUM; i++) {
         Plotly.restyle(graphDiv, { x: [time], y: [fields[i]] }, i);
@@ -405,9 +405,9 @@
       data.main_snr.push(d.main_snr);
       data.sec_snr.push(d.sec_snr);
       const lastSig = data.signal.length > 0 ? data.signal[data.signal.length - 1] : 0;
-      const lastPulse = data.pulse.length > 0 ? data.pulse[data.pulse.length - 1] : 0;
+      const lastCycles = data.cycles.length > 0 ? data.cycles[data.cycles.length - 1] : 0;
       data.signal.push(lastSig);
-      data.pulse.push(lastPulse);
+      data.cycles.push(lastCycles);
       requestTick();
     });
 
@@ -425,7 +425,7 @@
       data.main_snr.push(d.main_snr);
       data.sec_snr.push(d.sec_snr);
       data.signal.push(d.signal);
-      data.pulse.push(d.pulse);
+      data.cycles.push(d.cycles);
       requestTick();
     });
 
@@ -524,7 +524,7 @@
       data.time = [];
       data.main_db = []; data.sec_db = []; data.amb_db = []; data.amb_raw_db = [];
       data.main_snr = []; data.sec_snr = [];
-      data.signal = []; data.pulse = [];
+      data.signal = []; data.cycles = [];
       stateShapes = [];
       lastStateTime = null;
 
