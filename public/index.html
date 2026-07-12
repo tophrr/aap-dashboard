@@ -373,6 +373,7 @@
     const MAX_POINTS = 3000;
     const data = {
       time: [],
+      rms_db: [],
       main_db: [], sec_db: [], amb_db: [], amb_raw_db: [],
       main_snr: [], sec_snr: [],
       signal: [], cycles: [],
@@ -391,6 +392,7 @@
     // ── Plotly init with empty traces ──────────────────────
     const graphDiv = document.getElementById('plotly-graph');
     const traceDefs = [
+      { name: 'RMS (dB)', color: '#f43f5e', dash: 'solid', yaxis: 'y', width: 1.5 },
       { name: 'main (dB)', color: '#4ade80', dash: 'solid', yaxis: 'y', width: 1.5 },
       { name: 'sec (dB)', color: '#60a5fa', dash: 'solid', yaxis: 'y', width: 1.5 },
       { name: 'amb (dB)', color: '#94a3b8', dash: 'solid', yaxis: 'y', width: 1.5 },
@@ -484,6 +486,7 @@
       if (idx >= 0 && frame === lastFrameNum) {
         // Merge into the last point
         if (isDsp) {
+          data.rms_db[idx] = d.rms_db;
           data.main_db[idx] = d.main_db;
           data.sec_db[idx] = d.sec_db;
           data.amb_db[idx] = d.amb_db;
@@ -505,6 +508,7 @@
         }
 
         if (isDsp) {
+          data.rms_db.push(d.rms_db);
           data.main_db.push(d.main_db);
           data.sec_db.push(d.sec_db);
           data.amb_db.push(d.amb_db);
@@ -517,11 +521,13 @@
           data.signal.push(lastSig);
           data.cycles.push(lastCycles);
         } else {
+          const lastRMS = idx >= 0 ? data.rms_db[idx] : -120;
           const lastMain = idx >= 0 ? data.main_db[idx] : -120;
           const lastSec = idx >= 0 ? data.sec_db[idx] : -120;
           const lastAmb = idx >= 0 ? data.amb_db[idx] : -120;
           const lastAmbRaw = idx >= 0 ? data.amb_raw_db[idx] : -120;
           
+          data.rms_db.push(lastRMS);
           data.main_db.push(lastMain);
           data.sec_db.push(lastSec);
           data.amb_db.push(lastAmb);
@@ -535,6 +541,7 @@
         // Keep buffer bounded
         if (data.time.length > MAX_POINTS) {
           data.time.shift();
+          data.rms_db.shift();
           data.main_db.shift();
           data.sec_db.shift();
           data.amb_db.shift();
@@ -610,6 +617,7 @@
         needsUpdate = false;
         
         const fields = [
+          data.rms_db,
           data.main_db, 
           data.sec_db, 
           data.amb_db, 
@@ -619,7 +627,7 @@
         ];
         const time = data.time;
         const updateData = {
-          x: Array(6).fill(time),
+          x: Array(7).fill(time),
           y: fields
         };
         const stepSignal = makeStepData(time, data.signal);
@@ -748,6 +756,7 @@
 
     document.getElementById('btn-clear-data').addEventListener('click', () => {
       data.time = [];
+      data.rms_db = [];
       data.main_db = []; data.sec_db = []; data.amb_db = []; data.amb_raw_db = [];
       data.main_snr = []; data.sec_snr = [];
       data.signal = []; data.cycles = [];

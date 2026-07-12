@@ -218,16 +218,17 @@ function connectMQTT() {
 // ── Serial Line Parser ───────────────────────────────────────
 function processLine(line, io) {
   // Detect [DSP] #N with frame number → graph, NOT event log
-  const dspMatch = line.match(/^(?:\[\d{2}[.:]\d{2}[.:]\d{2}\]\s+)?\[DSP\]\s+#(\d+)\s+\|.*main=(-?\d+\.?\d*)\s+sec=(-?\d+\.?\d*)\s+amb=(-?\d+\.?\d*)\s*(?:\(raw=(-?\d+\.?\d*)\))?\s*\|.*main_snr=(-?\d+\.?\d*)\s+sec_snr=(-?\d+\.?\d*)/);
+  const dspMatch = line.match(/^(?:\[\d{2}[.:]\d{2}[.:]\d{2}\]\s+)?\[DSP\]\s+#(\d+)\s+\|.*RMS=(-?\d+\.?\d*)dB.*main=(-?\d+\.?\d*)\s+sec=(-?\d+\.?\d*)\s+amb=(-?\d+\.?\d*)\s*(?:\(raw=(-?\d+\.?\d*)\))?\s*\|.*main_snr=(-?\d+\.?\d*)\s+sec_snr=(-?\d+\.?\d*)/);
   if (dspMatch) {
     io.emit('dsp_data', {
       frame: parseInt(dspMatch[1]),
-      main_db: parseFloat(dspMatch[2]),
-      sec_db: parseFloat(dspMatch[3]),
-      amb_db: parseFloat(dspMatch[4]),
-      amb_raw_db: dspMatch[5] !== undefined ? parseFloat(dspMatch[5]) : parseFloat(dspMatch[4]),
-      main_snr: parseFloat(dspMatch[6]),
-      sec_snr: parseFloat(dspMatch[7]),
+      rms_db: parseFloat(dspMatch[2]),
+      main_db: parseFloat(dspMatch[3]),
+      sec_db: parseFloat(dspMatch[4]),
+      amb_db: parseFloat(dspMatch[5]),
+      amb_raw_db: dspMatch[6] !== undefined ? parseFloat(dspMatch[6]) : parseFloat(dspMatch[5]),
+      main_snr: parseFloat(dspMatch[7]),
+      sec_snr: parseFloat(dspMatch[8]),
       time: Date.now() / 1000
     });
     return;
