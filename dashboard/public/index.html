@@ -47,15 +47,24 @@
     /* Controls bar */
     .controls-bar { display: flex; align-items: center; gap: 12px; padding: 6px 16px; background: #16213e; border-top: 1px solid #0f3460; border-bottom: 1px solid #0f3460; flex-shrink: 0; font-size: 12px; }
 
-    /* Parameters pane */
-    .params-pane { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 16px; background: #16213e; flex-shrink: 0; border-top: 1px solid #0f3460; }
-    .param-card { background: #1a1a2e; border: 1px solid #0f3460; border-radius: 6px; padding: 8px 12px; min-width: 150px; flex: 1; max-width: 200px; }
-    .param-card label { display: block; font-size: 10px; text-transform: uppercase; color: #94a3b8; margin-bottom: 2px; }
-    .param-card .value { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
-    .param-card input[type="range"] { width: 100%; height: 4px; appearance: none; background: #0f3460; border-radius: 2px; outline: none; }
+    /* Tabs & Parameters layout */
+    .tabs-container { display: flex; flex-direction: column; width: 100%; background: #16213e; border-top: 1px solid #0f3460; flex-shrink: 0; }
+    .tabs-header { display: flex; align-items: center; border-bottom: 1px solid #0f3460; padding: 4px 16px 0 16px; background: #111a30; }
+    .tab-btn { background: none; border: none; padding: 8px 16px; font-size: 12px; color: #94a3b8; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s ease; margin-right: 8px; font-weight: 600; }
+    .tab-btn:hover { color: #e0e0e0; border-bottom: 2px solid #3b82f6; }
+    .tab-btn.active { color: #4ade80; border-bottom: 2px solid #4ade80; }
+    .tab-content { display: none; flex-wrap: wrap; gap: 8px; padding: 12px 16px; background: #16213e; min-height: 120px; overflow-y: auto; overflow-x: hidden; max-height: 180px; width: 100%; box-sizing: border-box; }
+    .tab-content.active { display: flex; }
+
+    .param-card { background: #1a1a2e; border: 1px solid #0f3460; border-radius: 6px; padding: 8px 12px; width: 200px; flex: 0 0 200px; box-sizing: border-box; }
+    .param-card label { font-size: 10px; text-transform: uppercase; color: #94a3b8; font-weight: 600; }
+    .param-input { background: #111a30; border: 1px solid #0f3460; color: #4ade80; border-radius: 4px; padding: 2px 6px; font-size: 11px; font-weight: 700; width: 65px; text-align: right; outline: none; transition: border-color 0.15s ease; }
+    .param-input:focus { border-color: #4ade80; }
+    .param-card input[type="range"] { width: 100%; height: 4px; appearance: none; background: #0f3460; border-radius: 2px; outline: none; margin-top: 8px; }
     .param-card input[type="range"]::-webkit-slider-thumb { appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #4ade80; cursor: pointer; }
     .param-card input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: #4ade80; cursor: pointer; border: none; }
-    .param-card input[type="checkbox"] { width: 18px; height: 18px; accent-color: #4ade80; }
+    .param-card.checkbox-card { display: flex; flex-direction: row; align-items: center; justify-content: space-between; min-height: 46px; }
+    .param-card input[type="checkbox"] { width: 18px; height: 18px; accent-color: #4ade80; cursor: pointer; }
 
     .graph-pane #plotly-graph { width: 100%; height: 100%; min-width: 0; min-height: 0; }
 
@@ -120,7 +129,24 @@
     <span id="data-points" style="color:#94a3b8;margin-left:auto">0 points</span>
   </div>
 
-  <div class="params-pane" id="params-pane"></div>
+  <div class="tabs-container">
+    <div class="tabs-header">
+      <button class="tab-btn active" id="tab-btn-fsm">FSM Settings</button>
+      <button class="tab-btn" id="tab-btn-dsp">DSP Settings</button>
+      <button class="tab-btn" id="tab-btn-other">System Settings</button>
+      <div style="margin-left:auto; display:flex; gap:8px; align-items:center; padding-bottom:4px;">
+        <label style="display:flex; align-items:center; gap:4px; font-size:11px; margin-right:8px; cursor:pointer; color:#94a3b8; user-select:none;">
+          <input type="checkbox" id="header-debug-enabled" style="width:14px; height:14px; accent-color:#4ade80; cursor:pointer;">
+          <span>Debug Logs</span>
+        </label>
+        <button class="btn" id="btn-refresh" style="background:#1e3a8a;border-color:#3b82f6">Refresh</button>
+        <button class="btn" id="btn-apply" style="background:#166534;border-color:#22c55e">Apply</button>
+      </div>
+    </div>
+    <div class="tab-content active" id="tab-fsm"></div>
+    <div class="tab-content" id="tab-dsp"></div>
+    <div class="tab-content" id="tab-other"></div>
+  </div>
 
   <script>
     const socket = io();
@@ -149,6 +175,7 @@
 
     socket.on('connect', () => {
       refreshPorts();
+      socket.emit('config_request');
     });
 
     socket.on('port_list', (ports) => {
@@ -496,6 +523,7 @@
     }
 
     const persisted = loadPersistedState();
+    const headerDebug = document.getElementById('header-debug-enabled');
 
     if (persisted && persisted.window_sec) {
       windowSelect.value = String(persisted.window_sec);
@@ -506,6 +534,13 @@
     if (persisted && persisted.autoscroll_log != null) {
       chkAutoscroll.checked = persisted.autoscroll_log;
     }
+    if (persisted && persisted.debug_enabled != null) {
+      headerDebug.checked = persisted.debug_enabled;
+    }
+
+    headerDebug.addEventListener('change', () => {
+      savePersistedState({ debug_enabled: headerDebug.checked });
+    });
 
     windowSelect.addEventListener('change', () => {
       savePersistedState({ window_sec: parseInt(windowSelect.value) });
@@ -539,71 +574,151 @@
 
     // ── Parameter Cards ────────────────────────────────────
     const params = [
-      { id: 'main_snr_db', label: 'Main SNR', min: 0, max: 50, step: 0.5, default: 25.0, unit: 'dB' },
-      { id: 'sec_snr_db', label: 'Sec SNR', min: 0, max: 50, step: 0.5, default: 22.0, unit: 'dB' },
-      { id: 'confirm_sec', label: 'Confirm', min: 0.1, max: 5.0, step: 0.1, default: 0.7, unit: 's' },
-      { id: 'probing_timeout_sec', label: 'Probing Timeout', min: 0.5, max: 10.0, step: 0.1, default: 3.0, unit: 's' },
-      { id: 'active_timeout_sec', label: 'Active Timeout', min: 0.5, max: 10.0, step: 0.1, default: 2.5, unit: 's' }
+      // FSM Settings
+      { id: 'main_snr_db', label: 'Main SNR', min: 0, max: 50, step: 0.5, default: 25.0, unit: 'dB', tab: 'fsm' },
+      { id: 'sec_snr_db', label: 'Sec SNR', min: 0, max: 50, step: 0.5, default: 22.0, unit: 'dB', tab: 'fsm' },
+      { id: 'confirm_sec', label: 'Confirm Time', min: 0.1, max: 5.0, step: 0.1, default: 0.7, unit: 's', tab: 'fsm' },
+      { id: 'probing_timeout_sec', label: 'Probing Timeout', min: 0.5, max: 10.0, step: 0.1, default: 3.0, unit: 's', tab: 'fsm' },
+      { id: 'active_timeout_sec', label: 'Active Timeout', min: 0.5, max: 10.0, step: 0.1, default: 2.5, unit: 's', tab: 'fsm' },
+      { id: 'pulse_on_sec', label: 'Pulse On Time', min: 0.05, max: 5.0, step: 0.05, default: 0.60, unit: 's', tab: 'fsm' },
+      { id: 'pulse_off_sec', label: 'Pulse Off Time', min: 0.05, max: 5.0, step: 0.05, default: 0.60, unit: 's', tab: 'fsm' },
+      { id: 'pulse_tolerance_sec', label: 'Pulse Tolerance', min: 0.05, max: 2.0, step: 0.05, default: 0.20, unit: 's', tab: 'fsm' },
+      { id: 'cycle_target_ms', label: 'Cycle Target', min: 100, max: 5000, step: 50, default: 1200, unit: 'ms', tab: 'fsm' },
+      { id: 'cycle_tolerance_ms', label: 'Cycle Tolerance', min: 10, max: 2000, step: 10, default: 300, unit: 'ms', tab: 'fsm' },
+      { id: 'required_cycles', label: 'Required Cycles', min: 1, max: 10, step: 1, default: 2, unit: '', tab: 'fsm' },
+      { id: 'signal_streak_min', label: 'Signal Streak Min', min: 1, max: 20, step: 1, default: 2, unit: 'frames', tab: 'fsm' },
+
+      // DSP Settings
+      { id: 'main_freq_hz', label: 'Main Freq', min: 100, max: 5000, step: 1, default: 1253.0, unit: 'Hz', tab: 'dsp' },
+      { id: 'sec_freq_hz', label: 'Sec Freq', min: 100, max: 5000, step: 1, default: 662.0, unit: 'Hz', tab: 'dsp' },
+      { id: 'amb_freq_hz', label: 'Amb Freq', min: 100, max: 5000, step: 1, default: 900.0, unit: 'Hz', tab: 'dsp' },
+      { id: 'alpha_attack', label: 'EMA Attack', min: 0.001, max: 1.0, step: 0.001, default: 0.01, unit: '', tab: 'dsp' },
+      { id: 'alpha_decay', label: 'EMA Decay', min: 0.001, max: 1.0, step: 0.001, default: 0.20, unit: '', tab: 'dsp' },
+
+      // System Settings
+      { id: 'deep_sleep_enabled', label: 'Deep Sleep Enabled', type: 'checkbox', default: false, tab: 'other' },
+      { id: 'sleep_start_hour', label: 'Sleep Start Hour', min: 0, max: 23, step: 1, default: 22, unit: 'h', tab: 'other' },
+      { id: 'wake_end_hour', label: 'Wake End Hour', min: 0, max: 23, step: 1, default: 5, unit: 'h', tab: 'other' },
+      { id: 'led_enabled', label: 'LED Indicator Enabled', type: 'checkbox', default: true, tab: 'other' },
+      { id: 'ota_enabled', label: 'OTA Enabled', type: 'checkbox', default: true, tab: 'other' },
+      { id: 'ota_port', label: 'OTA Port', min: 1024, max: 65535, step: 1, default: 3232, unit: '', tab: 'other' }
     ];
 
     const paramValues = {};
-    const paramPane = document.getElementById('params-pane');
+    const tabs = {
+      fsm: document.getElementById('tab-fsm'),
+      dsp: document.getElementById('tab-dsp'),
+      other: document.getElementById('tab-other')
+    };
+
+    function decimalPlaces(num) {
+      const match = ('' + num).match(/(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/);
+      if (!match) { return 0; }
+      return Math.max(0, (match[1] ? match[1].length : 0) - (match[2] ? +match[2] : 0));
+    }
 
     params.forEach(p => {
       const saved = persisted && persisted.params && persisted.params[p.id];
       const val = saved != null ? saved : p.default;
       paramValues[p.id] = val;
+
       const card = document.createElement('div');
       card.className = 'param-card';
-      card.innerHTML = `
-        <label>${p.label}</label>
-        <div class="value" id="val-${p.id}">${val.toFixed(p.step >= 1 ? 0 : 1)} ${p.unit}</div>
-        <input type="range" id="slider-${p.id}" min="${p.min}" max="${p.max}" step="${p.step}" value="${val}">
-      `;
-      paramPane.appendChild(card);
-      const slider = card.querySelector('input[type="range"]');
-      const valDisplay = card.querySelector('.value');
-      slider.addEventListener('input', () => {
-        const v = parseFloat(slider.value);
-        paramValues[p.id] = v;
-        valDisplay.textContent = `${v.toFixed(p.step >= 1 ? 0 : 1)} ${p.unit}`;
-        savePersistedState({ params: { ...paramValues } });
-        requestTick();
+
+      if (p.type === 'checkbox') {
+        card.classList.add('checkbox-card');
+        card.innerHTML = `
+          <label>${p.label}</label>
+          <input type="checkbox" id="check-${p.id}" ${val ? 'checked' : ''}>
+        `;
+        tabs[p.tab].appendChild(card);
+        const chk = card.querySelector('input[type="checkbox"]');
+        chk.addEventListener('change', () => {
+          paramValues[p.id] = chk.checked;
+          savePersistedState({ params: { ...paramValues } });
+        });
+      } else {
+        card.innerHTML = `
+          <div class="param-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 4px;">
+            <label>${p.label}</label>
+            <div style="display:flex; align-items:center; gap:4px;">
+              <input type="number" id="input-${p.id}" class="param-input" min="${p.min}" max="${p.max}" step="${p.step}" value="${val}">
+              <span class="unit" style="font-size:10px; color:#94a3b8">${p.unit}</span>
+            </div>
+          </div>
+          <input type="range" id="slider-${p.id}" min="${p.min}" max="${p.max}" step="${p.step}" value="${val}">
+        `;
+        tabs[p.tab].appendChild(card);
+
+        const slider = card.querySelector('input[type="range"]');
+        const input = card.querySelector('input[type="number"]');
+
+        slider.addEventListener('input', () => {
+          let v = parseFloat(slider.value);
+          if (p.step >= 1) v = Math.round(v);
+          paramValues[p.id] = v;
+          input.value = p.step >= 1 ? v : v.toFixed(decimalPlaces(p.step));
+          savePersistedState({ params: { ...paramValues } });
+          requestTick();
+        });
+
+        input.addEventListener('change', () => {
+          let v = parseFloat(input.value);
+          if (isNaN(v)) v = p.default;
+          v = Math.max(p.min, Math.min(p.max, v));
+          if (p.step >= 1) v = Math.round(v);
+          paramValues[p.id] = v;
+          input.value = p.step >= 1 ? v : v.toFixed(decimalPlaces(p.step));
+          slider.value = v;
+          savePersistedState({ params: { ...paramValues } });
+          requestTick();
+        });
+      }
+    });
+
+    // ── Tab Selection Logic ────────────────────────────────
+    const tabBtns = {
+      fsm: document.getElementById('tab-btn-fsm'),
+      dsp: document.getElementById('tab-btn-dsp'),
+      other: document.getElementById('tab-btn-other')
+    };
+
+    const tabContents = {
+      fsm: document.getElementById('tab-fsm'),
+      dsp: document.getElementById('tab-dsp'),
+      other: document.getElementById('tab-other')
+    };
+
+    function switchTab(tabName) {
+      Object.keys(tabBtns).forEach(key => {
+        if (key === tabName) {
+          tabBtns[key].classList.add('active');
+          tabContents[key].classList.add('active');
+        } else {
+          tabBtns[key].classList.remove('active');
+          tabContents[key].classList.remove('active');
+        }
       });
+      requestAnimationFrame(resizeGraph);
+    }
+
+    Object.keys(tabBtns).forEach(key => {
+      tabBtns[key].addEventListener('click', () => switchTab(key));
     });
 
-    // Debug checkbox card
-    const debugCard = document.createElement('div');
-    debugCard.className = 'param-card';
-    debugCard.style.display = 'flex';
-    debugCard.style.flexDirection = 'column';
-    debugCard.style.justifyContent = 'center';
-    debugCard.innerHTML = `
-      <label>Debug</label>
-      <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
-        <input type="checkbox" id="debug_enabled"${persisted && persisted.debug_enabled ? ' checked' : ''}>
-        <span style="font-size:12px">Enable</span>
-      </div>
-    `;
-    paramPane.appendChild(debugCard);
-
-    document.getElementById('debug_enabled').addEventListener('change', () => {
-      savePersistedState({ debug_enabled: document.getElementById('debug_enabled').checked });
-    });
-
-    // Apply button card
-    const applyCard = document.createElement('div');
-    applyCard.className = 'param-card';
-    applyCard.style.display = 'flex';
-    applyCard.style.alignItems = 'center';
-    applyCard.style.justifyContent = 'center';
-    applyCard.innerHTML = `<button class="btn" id="btn-apply" style="font-size:14px;padding:8px 24px;background:#166534;border-color:#22c55e">Apply</button>`;
-    paramPane.appendChild(applyCard);
-
+    // ── Actions: Apply and Refresh ─────────────────────────
     document.getElementById('btn-apply').addEventListener('click', () => {
-      const config = { ...paramValues };
-      config.debug_enabled = document.getElementById('debug_enabled').checked;
-      // Only include values that differ from defaults
+      const config = {};
+      params.forEach(p => {
+        if (p.type === 'checkbox') {
+          const chk = document.getElementById(`check-${p.id}`);
+          config[p.id] = chk ? chk.checked : false;
+        } else {
+          config[p.id] = paramValues[p.id];
+        }
+      });
+      config.debug_enabled = headerDebug.checked;
+
       socket.emit('config_update', config);
       const btn = document.getElementById('btn-apply');
       btn.textContent = '✓ Sent';
@@ -612,6 +727,60 @@
         btn.textContent = 'Apply';
         btn.style.background = '#166534';
       }, 2000);
+    });
+
+    document.getElementById('btn-refresh').addEventListener('click', () => {
+      socket.emit('config_request');
+      const btn = document.getElementById('btn-refresh');
+      btn.textContent = '✓ Requested';
+      btn.style.background = '#1e3a8a';
+      setTimeout(() => {
+        btn.textContent = 'Refresh';
+        btn.style.background = '#1e3a8a';
+      }, 2000);
+    });
+
+    // ── Handle incoming configuration acknowledgements ──────
+    socket.on('config_ack', (cfg) => {
+      console.log('[Config] Ack received:', cfg);
+
+      if (cfg.hasOwnProperty('debug_enabled')) {
+        headerDebug.checked = !!cfg.debug_enabled;
+      }
+
+      // Update our local parameter values and DOM inputs
+      Object.keys(cfg).forEach(key => {
+        const paramId = key;
+        if (paramValues.hasOwnProperty(paramId)) {
+          const val = cfg[key];
+          paramValues[paramId] = val;
+
+          const param = params.find(p => p.id === paramId);
+          if (param) {
+            if (param.type === 'checkbox') {
+              const chk = document.getElementById(`check-${paramId}`);
+              if (chk) chk.checked = !!val;
+            } else {
+              const slider = document.getElementById(`slider-${paramId}`);
+              const input = document.getElementById(`input-${paramId}`);
+              if (slider) slider.value = val;
+              if (input) {
+                input.value = param.step >= 1 ? val : val.toFixed(decimalPlaces(param.step));
+              }
+            }
+          }
+        }
+      });
+
+      savePersistedState({ params: { ...paramValues } });
+      requestTick();
+
+      // Show notification in event log
+      const div = document.createElement('div');
+      div.textContent = `[${new Date().toLocaleTimeString()}] [Config] Synced with edge device settings.`;
+      div.style.color = '#3b82f6';
+      logContent.appendChild(div);
+      if (chkAutoscroll.checked) logContent.scrollTop = logContent.scrollHeight;
     });
   </script>
 </body>

@@ -96,6 +96,14 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ── Config request (from Refresh button) ────────────────
+  socket.on('config_request', () => {
+    console.log('[Config] Requesting current config');
+    if (mqttClient && mqttClient.connected) {
+      mqttClient.publish('crossing/config/req', '{}');
+    }
+  });
+
   // ── MQTT connection request ────────────────────────────
   socket.on('mqtt_connect', () => {
     if (mqttClient && mqttClient.connected) return;
@@ -122,6 +130,7 @@ function connectMQTT() {
     mqttClient.subscribe('crossing/event');
     mqttClient.subscribe('crossing/heartbeat');
     mqttClient.subscribe('crossing/telemetry');
+    mqttClient.subscribe('crossing/config/ack');
     io.emit('mqtt_status', { connected: true, broker: MQTT_BROKER });
   });
 
@@ -133,6 +142,14 @@ function connectMQTT() {
       time: new Date().toLocaleTimeString(),
       text: `[MQTT] <${topic}> ${payload}`
     });
+
+    if (topic === 'crossing/config/ack') {
+      try {
+        io.emit('config_ack', JSON.parse(payload));
+      } catch (err) {
+        console.error('[MQTT] JSON parse error in config ack:', err.message);
+      }
+    }
   });
 
   mqttClient.on('close', () => {
