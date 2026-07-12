@@ -63,7 +63,7 @@
     .param-card input[type="range"] { width: 100%; height: 4px; appearance: none; background: #0f3460; border-radius: 2px; outline: none; margin-top: 8px; }
     .param-card input[type="range"]::-webkit-slider-thumb { appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #4ade80; cursor: pointer; }
     .param-card input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: #4ade80; cursor: pointer; border: none; }
-    .param-card.checkbox-card { display: flex; flex-direction: row; align-items: center; justify-content: space-between; min-height: 46px; }
+    .param-card.checkbox-card, .param-card.number-card { display: flex; flex-direction: row; align-items: center; justify-content: space-between; min-height: 46px; }
     .param-card input[type="checkbox"] { width: 18px; height: 18px; accent-color: #4ade80; cursor: pointer; }
 
     .graph-pane #plotly-graph { width: 100%; height: 100%; min-width: 0; min-height: 0; }
@@ -173,6 +173,10 @@
         <label style="display:flex; align-items:center; gap:4px; font-size:11px; margin-right:8px; cursor:pointer; color:#94a3b8; user-select:none;">
           <input type="checkbox" id="header-debug-enabled" style="width:14px; height:14px; accent-color:#4ade80; cursor:pointer;">
           <span>Debug Logs</span>
+        </label>
+        <label style="display:flex; align-items:center; gap:4px; font-size:11px; margin-right:8px; cursor:pointer; color:#94a3b8; user-select:none;">
+          <input type="checkbox" id="header-mqtt-logs-enabled" style="width:14px; height:14px; accent-color:#4ade80; cursor:pointer;">
+          <span>MQTT Logs</span>
         </label>
         <button class="btn" id="btn-refresh" style="background:#1e3a8a;border-color:#3b82f6">Refresh</button>
         <button class="btn" id="btn-send-config" style="background:#166534;border-color:#22c55e">Send Config</button>
@@ -768,6 +772,7 @@
 
     const persisted = loadPersistedState();
     const headerDebug = document.getElementById('header-debug-enabled');
+    const headerMqttLogs = document.getElementById('header-mqtt-logs-enabled');
 
     if (persisted && persisted.window_sec) {
       windowSelect.value = String(persisted.window_sec);
@@ -781,9 +786,15 @@
     if (persisted && persisted.debug_enabled != null) {
       headerDebug.checked = persisted.debug_enabled;
     }
+    if (persisted && persisted.mqtt_logs_enabled != null) {
+      headerMqttLogs.checked = persisted.mqtt_logs_enabled;
+    }
 
     headerDebug.addEventListener('change', () => {
       savePersistedState({ debug_enabled: headerDebug.checked });
+    });
+    headerMqttLogs.addEventListener('change', () => {
+      savePersistedState({ mqtt_logs_enabled: headerMqttLogs.checked });
     });
 
     windowSelect.addEventListener('change', () => {
@@ -846,8 +857,7 @@
       { id: 'wake_end_hour', label: 'Wake End Hour', min: 0, max: 23, step: 1, default: 5, unit: 'h', tab: 'other' },
       { id: 'led_enabled', label: 'LED Indicator Enabled', type: 'checkbox', default: true, tab: 'other' },
       { id: 'ota_enabled', label: 'OTA Enabled', type: 'checkbox', default: true, tab: 'other' },
-      { id: 'ota_port', label: 'OTA Port', min: 1024, max: 65535, step: 1, default: 3232, unit: '', tab: 'other' },
-      { id: 'mqtt_logs_enabled', label: 'MQTT Logs Enabled', type: 'checkbox', default: false, tab: 'other' }
+      { id: 'ota_port', label: 'OTA Port', type: 'number', min: 1024, max: 65535, step: 1, default: 3232, unit: '', tab: 'other' }
     ];
 
     const paramValues = {};
@@ -882,6 +892,28 @@
         chk.addEventListener('change', () => {
           paramValues[p.id] = chk.checked;
           savePersistedState({ params: { ...paramValues } });
+        });
+      } else if (p.type === 'number') {
+        card.classList.add('number-card');
+        card.innerHTML = `
+          <label>${p.label}</label>
+          <div style="display:flex; align-items:center; gap:4px;">
+            <input type="number" id="input-${p.id}" class="param-input" min="${p.min}" max="${p.max}" step="${p.step}" value="${val}">
+            <span class="unit" style="font-size:10px; color:#94a3b8">${p.unit}</span>
+          </div>
+        `;
+        tabs[p.tab].appendChild(card);
+
+        const input = card.querySelector('input[type="number"]');
+        input.addEventListener('change', () => {
+          let v = parseFloat(input.value);
+          if (isNaN(v)) v = p.default;
+          v = Math.max(p.min, Math.min(p.max, v));
+          if (p.step >= 1) v = Math.round(v);
+          paramValues[p.id] = v;
+          input.value = p.step >= 1 ? v : v.toFixed(decimalPlaces(p.step));
+          savePersistedState({ params: { ...paramValues } });
+          requestTick();
         });
       } else {
         card.innerHTML = `
@@ -966,6 +998,7 @@
         }
       });
       config.debug_enabled = headerDebug.checked;
+      config.mqtt_logs_enabled = headerMqttLogs.checked;
       return config;
     }
 
@@ -1180,6 +1213,9 @@
 
       if (cfg.hasOwnProperty('debug_enabled')) {
         headerDebug.checked = !!cfg.debug_enabled;
+      }
+      if (cfg.hasOwnProperty('mqtt_logs_enabled')) {
+        headerMqttLogs.checked = !!cfg.mqtt_logs_enabled;
       }
 
       // Update our local parameter values and DOM inputs
