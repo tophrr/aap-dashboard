@@ -247,7 +247,7 @@
     const MAX_POINTS = 5000;
     const data = {
       time: [],
-      main_db: [], sec_db: [], amb_db: [],
+      main_db: [], sec_db: [], amb_db: [], amb_raw_db: [],
       main_snr: [], sec_snr: [],
       signal: [], pulse: [],
     };
@@ -268,6 +268,7 @@
       { name: 'main (dB)', color: '#4ade80', dash: 'solid', yaxis: 'y', shape: 'linear', width: 1.5 },
       { name: 'sec (dB)', color: '#60a5fa', dash: 'solid', yaxis: 'y', shape: 'linear', width: 1.5 },
       { name: 'amb (dB)', color: '#94a3b8', dash: 'solid', yaxis: 'y', shape: 'linear', width: 1.5 },
+      { name: 'amb_raw (dB)', color: '#64748b', dash: 'dash', yaxis: 'y', shape: 'linear', width: 1.2 },
       { name: 'main_snr', color: '#4ade80', dash: 'dot', yaxis: 'y', shape: 'linear', width: 1 },
       { name: 'sec_snr', color: '#60a5fa', dash: 'dot', yaxis: 'y', shape: 'linear', width: 1 },
       { name: 'signal', color: '#facc15', dash: 'solid', yaxis: 'y2', shape: 'hv', width: 1 },
@@ -343,7 +344,7 @@
       const ws = parseInt(windowSelect.value) * 1000;
 
       // Update all traces with current buffered data via restyle
-      const fields = [data.main_db, data.sec_db, data.amb_db, data.main_snr, data.sec_snr, data.signal, data.pulse];
+      const fields = [data.main_db, data.sec_db, data.amb_db, data.amb_raw_db, data.main_snr, data.sec_snr, data.signal, data.pulse];
       const time = data.time;
       for (let i = 0; i < NUM; i++) {
         Plotly.restyle(graphDiv, { x: [time], y: [fields[i]] }, i);
@@ -400,6 +401,7 @@
       data.main_db.push(d.main_db);
       data.sec_db.push(d.sec_db);
       data.amb_db.push(d.amb_db);
+      data.amb_raw_db.push(d.amb_raw_db);
       data.main_snr.push(d.main_snr);
       data.sec_snr.push(d.sec_snr);
       const lastSig = data.signal.length > 0 ? data.signal[data.signal.length - 1] : 0;
@@ -414,10 +416,12 @@
       const lastMain = data.main_db.length > 0 ? data.main_db[data.main_db.length - 1] : -120;
       const lastSec = data.sec_db.length > 0 ? data.sec_db[data.sec_db.length - 1] : -120;
       const lastAmb = data.amb_db.length > 0 ? data.amb_db[data.amb_db.length - 1] : -120;
+      const lastAmbRaw = data.amb_raw_db.length > 0 ? data.amb_raw_db[data.amb_raw_db.length - 1] : -120;
       data.time.push(t);
       data.main_db.push(lastMain);
       data.sec_db.push(lastSec);
       data.amb_db.push(lastAmb);
+      data.amb_raw_db.push(lastAmbRaw);
       data.main_snr.push(d.main_snr);
       data.sec_snr.push(d.sec_snr);
       data.signal.push(d.signal);
@@ -518,7 +522,7 @@
     // ── Clear Data ────────────────────────────────────────
     document.getElementById('btn-clear-data').addEventListener('click', () => {
       data.time = [];
-      data.main_db = []; data.sec_db = []; data.amb_db = [];
+      data.main_db = []; data.sec_db = []; data.amb_db = []; data.amb_raw_db = [];
       data.main_snr = []; data.sec_snr = [];
       data.signal = []; data.pulse = [];
       stateShapes = [];
