@@ -173,21 +173,31 @@
       socket.emit('list_ports');
     }
 
+    let hasAutoConnectedSerial = false;
+    let hasAutoConnectedMqtt = false;
+
     socket.on('connect', () => {
       refreshPorts();
       socket.emit('config_request');
     });
 
     socket.on('port_list', (ports) => {
-      const currentVal = portSelect.value;
+      const currentVal = portSelect.value || (persisted && persisted.serial_port) || '';
       portSelect.innerHTML = '<option value="">(select port)</option>' +
         ports.map(p => `<option value="${p.path}">${p.path}${p.manufacturer ? ' — ' + p.manufacturer : ''}</option>`).join('');
-      portSelect.value = currentVal;
+      
+      if (ports.some(p => p.path === currentVal)) {
+        portSelect.value = currentVal;
+        savePersistedState({ serial_port: currentVal });
+      }
     });
 
     // Refresh ports when user opens the dropdown
     portSelect.addEventListener('mousedown', refreshPorts);
     portSelect.addEventListener('focus', refreshPorts);
+    portSelect.addEventListener('change', () => {
+      savePersistedState({ serial_port: portSelect.value });
+    });
 
     // ── Serial connect/disconnect ─────────────────────────
     btnConnect.addEventListener('click', () => {
@@ -207,11 +217,21 @@
         serialStatus.style.color = '#4ade80';
         btnConnect.disabled = true;
         btnDisconnect.disabled = false;
+        savePersistedState({ serial_connected: true, serial_port: status.port });
       } else {
         serialStatus.textContent = status.error || 'disconnected';
         serialStatus.style.color = status.error ? '#f87171' : '#94a3b8';
         btnConnect.disabled = false;
         btnDisconnect.disabled = true;
+        savePersistedState({ serial_connected: false });
+
+        // Auto-reconnect serial if it was supposed to be connected
+        const targetPort = portSelect.value || (persisted && persisted.serial_port);
+        if (persisted && persisted.serial_connected && targetPort && !hasAutoConnectedSerial) {
+          hasAutoConnectedSerial = true;
+          console.log('[Serial] Triggering auto-reconnect to:', targetPort);
+          socket.emit('serial_connect', targetPort);
+        }
       }
     });
 
@@ -231,11 +251,20 @@
         mqttLabel.textContent = `connected ${status.broker.replace('mqtt://','')}`;
         btnMqttConnect.disabled = true;
         btnMqttDisconnect.disabled = false;
+        savePersistedState({ mqtt_connected: true });
       } else {
         mqttDot.className = 'status-dot red';
         mqttLabel.textContent = 'disconnected';
         btnMqttConnect.disabled = false;
         btnMqttDisconnect.disabled = true;
+        savePersistedState({ mqtt_connected: false });
+
+        // Auto-reconnect MQTT if it was supposed to be connected
+        if (persisted && persisted.mqtt_connected && !hasAutoConnectedMqtt) {
+          hasAutoConnectedMqtt = true;
+          console.log('[MQTT] Triggering auto-reconnect');
+          socket.emit('mqtt_connect');
+        }
       }
     });
 

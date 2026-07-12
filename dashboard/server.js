@@ -8,7 +8,21 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-const PORT = 3000;
+// Parse port from command line arguments or environment variable
+let parsedPort = 3000;
+const args = process.argv.slice(2);
+const portEqualsIndex = args.findIndex(arg => arg.startsWith('--port='));
+if (portEqualsIndex !== -1) {
+  parsedPort = parseInt(args[portEqualsIndex].split('=')[1]);
+} else {
+  const portSpaceIndex = args.indexOf('--port');
+  if (portSpaceIndex !== -1 && portSpaceIndex + 1 < args.length) {
+    parsedPort = parseInt(args[portSpaceIndex + 1]);
+  } else {
+    parsedPort = process.env.PORT || 3000;
+  }
+}
+const PORT = parsedPort;
 const MQTT_BROKER = 'mqtt://10.101.118.108:1883';
 
 app.use(express.static('public'));
@@ -21,6 +35,17 @@ let lineBuffer = '';
 // ── Socket.IO ──────────────────────────────────────────────
 io.on('connection', (socket) => {
   console.log(`[Socket] Client connected: ${socket.id}`);
+
+  // Emit current connection statuses to newly connected client
+  socket.emit('mqtt_status', {
+    connected: !!(mqttClient && mqttClient.connected),
+    broker: mqttClient && mqttClient.connected ? MQTT_BROKER : ''
+  });
+
+  socket.emit('serial_status', {
+    connected: !!(serialPort && serialPort.isOpen),
+    port: serialPort ? serialPort.path : null
+  });
 
   // ── Serial port listing ────────────────────────────────
   socket.on('list_ports', async () => {
