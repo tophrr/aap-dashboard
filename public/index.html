@@ -69,6 +69,38 @@
     .graph-pane #plotly-graph { width: 100%; height: 100%; min-width: 0; min-height: 0; }
 
     .section-label { color: #94a3b8; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-right: 8px; }
+
+    /* Status & Telemetry Tab */
+    .telemetry-tab { display: none; flex-direction: column; gap: 10px; padding: 12px 16px; background: #16213e; min-height: 120px; overflow-y: auto; max-height: 180px; width: 100%; box-sizing: border-box; }
+    .telemetry-tab.active { display: flex; flex-direction: row; flex-wrap: wrap; gap: 10px; align-items: flex-start; }
+
+    /* Heartbeat status bar */
+    .hb-bar { display: flex; align-items: center; gap: 10px; width: 100%; padding: 4px 6px; background: #111a30; border: 1px solid #0f3460; border-radius: 6px; font-size: 11px; flex-shrink: 0; }
+    .hb-pulse { width: 9px; height: 9px; border-radius: 50%; background: #4b5563; flex-shrink: 0; transition: background 0.4s; }
+    .hb-pulse.alive { background: #4ade80; box-shadow: 0 0 6px #4ade80; animation: hb-blink 1.5s ease-in-out; }
+    @keyframes hb-blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .hb-label { font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.4px; }
+    .hb-value { color: #e0e0e0; }
+    .hb-stale { color: #f87171; }
+
+    /* Telemetry metric cards */
+    .telem-card { background: #1a1a2e; border: 1px solid #0f3460; border-radius: 6px; padding: 6px 10px; min-width: 140px; flex: 0 0 auto; box-sizing: border-box; }
+    .telem-card .tc-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; margin-bottom: 2px; }
+    .telem-card .tc-value { font-size: 14px; font-weight: 700; font-family: 'Cascadia Code', 'Fira Code', monospace; color: #e0e0e0; white-space: nowrap; }
+    .telem-card .tc-sub { font-size: 9px; color: #64748b; margin-top: 1px; }
+    .telem-card.warn .tc-value { color: #facc15; }
+    .telem-card.danger .tc-value { color: #f87171; }
+    .telem-card.good .tc-value { color: #4ade80; }
+
+    /* Events history table */
+    .events-section { width: 100%; flex-shrink: 0; }
+    .events-section .ev-header { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; margin-bottom: 4px; font-weight: 600; }
+    .events-table { width: 100%; border-collapse: collapse; font-size: 10px; font-family: 'Cascadia Code', 'Fira Code', monospace; }
+    .events-table th { text-align: left; color: #64748b; font-weight: 600; padding: 2px 6px; border-bottom: 1px solid #0f3460; text-transform: uppercase; letter-spacing: 0.3px; }
+    .events-table td { padding: 3px 6px; border-bottom: 1px solid #1a1a2e; color: #e0e0e0; }
+    .events-table tr.ev-started td { color: #4ade80; }
+    .events-table tr.ev-ended td { color: #60a5fa; }
+    .events-table tr:hover td { background: #1a1a2e; }
   </style>
 </head>
 <body>
@@ -134,6 +166,7 @@
       <button class="tab-btn active" id="tab-btn-fsm">FSM Settings</button>
       <button class="tab-btn" id="tab-btn-dsp">DSP Settings</button>
       <button class="tab-btn" id="tab-btn-other">System Settings</button>
+      <button class="tab-btn" id="tab-btn-status">Status &amp; Telemetry</button>
       <div style="margin-left:auto; display:flex; gap:8px; align-items:center; padding-bottom:4px;">
         <label style="display:flex; align-items:center; gap:4px; font-size:11px; margin-right:8px; cursor:pointer; color:#94a3b8; user-select:none;">
           <input type="checkbox" id="header-debug-enabled" style="width:14px; height:14px; accent-color:#4ade80; cursor:pointer;">
@@ -146,6 +179,42 @@
     <div class="tab-content active" id="tab-fsm"></div>
     <div class="tab-content" id="tab-dsp"></div>
     <div class="tab-content" id="tab-other"></div>
+    <!-- Status & Telemetry tab -->
+    <div class="telemetry-tab" id="tab-status">
+      <!-- Heartbeat status bar -->
+      <div class="hb-bar">
+        <div class="hb-pulse" id="hb-pulse"></div>
+        <span class="hb-label">Edge Device</span>
+        <span class="hb-value" id="hb-status-text">waiting&hellip;</span>
+        <span style="margin-left:auto;display:flex;gap:16px">
+          <span><span class="hb-label">Uptime</span> <span class="hb-value" id="hb-uptime">&mdash;</span></span>
+          <span><span class="hb-label">Last Seen</span> <span class="hb-value" id="hb-last-seen">&mdash;</span></span>
+        </span>
+      </div>
+
+      <!-- Telemetry metric cards -->
+      <div class="telem-card" id="tc-temp"><div class="tc-label">Internal Temp</div><div class="tc-value" id="tcv-temp">&mdash;</div><div class="tc-sub">ESP32 core sensor</div></div>
+      <div class="telem-card" id="tc-rssi"><div class="tc-label">Wi-Fi RSSI</div><div class="tc-value" id="tcv-rssi">&mdash;</div><div class="tc-sub" id="tcs-channel">&mdash;</div></div>
+      <div class="telem-card" id="tc-bssid"><div class="tc-label">AP BSSID</div><div class="tc-value" id="tcv-bssid" style="font-size:11px">&mdash;</div><div class="tc-sub">access point</div></div>
+      <div class="telem-card" id="tc-wifi-drops"><div class="tc-label">Wi-Fi Drops</div><div class="tc-value" id="tcv-wifi-drops">&mdash;</div><div class="tc-sub" id="tcs-wifi-faults">faults: &mdash;</div></div>
+      <div class="telem-card" id="tc-mqtt-rtt"><div class="tc-label">MQTT RTT</div><div class="tc-value" id="tcv-mqtt-rtt">&mdash;</div><div class="tc-sub">broker round-trip</div></div>
+      <div class="telem-card" id="tc-mqtt-recon"><div class="tc-label">MQTT Reconnects</div><div class="tc-value" id="tcv-mqtt-recon">&mdash;</div><div class="tc-sub">&nbsp;</div></div>
+      <div class="telem-card" id="tc-heap"><div class="tc-label">Free Heap</div><div class="tc-value" id="tcv-heap">&mdash;</div><div class="tc-sub" id="tcs-min-heap">min: &mdash;</div></div>
+      <div class="telem-card" id="tc-reset"><div class="tc-label">Reset Reason</div><div class="tc-value" id="tcv-reset" style="font-size:11px">&mdash;</div><div class="tc-sub">&nbsp;</div></div>
+      <div class="telem-card" id="tc-tasks"><div class="tc-label">FreeRTOS Tasks</div><div class="tc-value" id="tcv-tasks">&mdash;</div><div class="tc-sub" id="tcs-stacks">fsm/audio stacks &mdash;</div></div>
+      <div class="telem-card" id="tc-events"><div class="tc-label">Events Today</div><div class="tc-value" id="tcv-events">&mdash;</div><div class="tc-sub" id="tcs-state">state: &mdash;</div></div>
+
+      <!-- Crossing events history table -->
+      <div class="events-section">
+        <div class="ev-header">✔ Crossing Events</div>
+        <table class="events-table" id="events-table">
+          <thead><tr>
+            <th>#</th><th>Type</th><th>Time</th><th>Duration</th><th>Probing At</th><th>Active At</th>
+          </tr></thead>
+          <tbody id="events-tbody"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -802,13 +871,15 @@
     const tabBtns = {
       fsm: document.getElementById('tab-btn-fsm'),
       dsp: document.getElementById('tab-btn-dsp'),
-      other: document.getElementById('tab-btn-other')
+      other: document.getElementById('tab-btn-other'),
+      status: document.getElementById('tab-btn-status')
     };
 
     const tabContents = {
-      fsm: document.getElementById('tab-fsm'),
-      dsp: document.getElementById('tab-dsp'),
-      other: document.getElementById('tab-other')
+      fsm:    document.getElementById('tab-fsm'),
+      dsp:    document.getElementById('tab-dsp'),
+      other:  document.getElementById('tab-other'),
+      status: document.getElementById('tab-status')
     };
 
     function switchTab(tabName) {
@@ -860,6 +931,171 @@
         btn.textContent = 'Refresh';
         btn.style.background = '#1e3a8a';
       }, 2000);
+    });
+
+    // ── Status & Telemetry Tab Logic ────────────────────────────────
+
+    const hbPulse      = document.getElementById('hb-pulse');
+    const hbStatusText = document.getElementById('hb-status-text');
+    const hbUptime     = document.getElementById('hb-uptime');
+    const hbLastSeen   = document.getElementById('hb-last-seen');
+
+    let lastHeartbeatMs = 0;
+    let hbStaleTimer    = null;
+    let eventsCount     = 0;
+
+    function formatUptime(sec) {
+      const s = sec % 60;
+      const m = Math.floor(sec / 60) % 60;
+      const h = Math.floor(sec / 3600) % 24;
+      const d = Math.floor(sec / 86400);
+      if (d > 0) return `${d}d ${h}h ${m}m`;
+      if (h > 0) return `${h}h ${m}m ${s}s`;
+      if (m > 0) return `${m}m ${s}s`;
+      return `${s}s`;
+    }
+
+    function markDeviceAlive(timestamp) {
+      lastHeartbeatMs = Date.now();
+      hbPulse.classList.add('alive');
+      hbStatusText.textContent = '● online';
+      hbStatusText.className = 'hb-value';
+      hbLastSeen.textContent = new Date(timestamp * 1000).toLocaleTimeString();
+      clearTimeout(hbStaleTimer);
+      // Mark stale if no heartbeat arrives within 90 s
+      hbStaleTimer = setTimeout(() => {
+        hbPulse.classList.remove('alive');
+        hbStatusText.textContent = '○ stale';
+        hbStatusText.className = 'hb-value hb-stale';
+      }, 90000);
+    }
+
+    function setCard(id, value, subId, subValue, colorClass) {
+      const vcEl = document.getElementById(id);
+      if (vcEl) {
+        vcEl.textContent = value;
+        // Swap colour class
+        const card = vcEl.closest('.telem-card');
+        if (card && colorClass) {
+          card.classList.remove('warn', 'danger', 'good');
+          if (colorClass) card.classList.add(colorClass);
+        }
+      }
+      if (subId) {
+        const subEl = document.getElementById(subId);
+        if (subEl) subEl.textContent = subValue;
+      }
+    }
+
+    // ── crossing/heartbeat ──────────────────────────────────
+    function handleHeartbeat(payload) {
+      try { const d = JSON.parse(payload);
+        markDeviceAlive(d.timestamp);
+        hbUptime.textContent = d.uptime_sec != null ? formatUptime(d.uptime_sec) : '—';
+      } catch (_) {}
+    }
+
+    // ── crossing/telemetry ──────────────────────────────────
+    function handleTelemetry(payload) {
+      try {
+        const d = JSON.parse(payload);
+        // Also mark the device alive on telemetry
+        if (d.timestamp) markDeviceAlive(d.timestamp);
+        if (d.uptime_sec != null) hbUptime.textContent = formatUptime(d.uptime_sec);
+
+        // Internal temperature
+        const tempC = parseFloat(d.internal_temp_c);
+        const tempClass = tempC > 70 ? 'danger' : tempC > 55 ? 'warn' : 'good';
+        setCard('tcv-temp', isNaN(tempC) ? '—' : `${tempC.toFixed(1)} °C`, null, null, tempClass);
+
+        // Wi-Fi RSSI + channel
+        const rssi = d.wifi_rssi;
+        const rssiClass = rssi == null ? '' : rssi > -65 ? 'good' : rssi > -80 ? 'warn' : 'danger';
+        setCard('tcv-rssi', rssi != null ? `${rssi} dBm` : '—', 'tcs-channel',
+                d.wifi_channel != null ? `ch ${d.wifi_channel}` : '—', rssiClass);
+
+        // BSSID
+        setCard('tcv-bssid', d.wifi_bssid || '—', null, null, '');
+
+        // Wi-Fi drops + faults
+        const drops = d.wifi_disconnects;
+        const faults = d.wifi_faults;
+        const dropClass = drops > 0 ? 'warn' : 'good';
+        setCard('tcv-wifi-drops', drops != null ? String(drops) : '—',
+                'tcs-wifi-faults', faults != null ? `faults: ${faults}` : 'faults: —', dropClass);
+
+        // MQTT RTT
+        const rtt = d.mqtt_rtt_ms;
+        const rttClass = rtt == null || rtt < 0 ? '' : rtt < 50 ? 'good' : rtt < 150 ? 'warn' : 'danger';
+        setCard('tcv-mqtt-rtt', rtt != null && rtt >= 0 ? `${rtt} ms` : '—', null, null, rttClass);
+
+        // MQTT reconnects
+        const mqttRecon = d.mqtt_reconnects;
+        setCard('tcv-mqtt-recon', mqttRecon != null ? String(mqttRecon) : '—', null, null,
+                mqttRecon > 0 ? 'warn' : 'good');
+
+        // Heap
+        const heap = d.free_heap;
+        const heapClass = heap == null ? '' : heap > 100000 ? 'good' : heap > 50000 ? 'warn' : 'danger';
+        setCard('tcv-heap', heap != null ? `${(heap/1024).toFixed(1)} KB` : '—',
+                'tcs-min-heap', d.min_heap != null ? `min: ${(d.min_heap/1024).toFixed(1)} KB` : 'min: —', heapClass);
+
+        // Reset reason
+        setCard('tcv-reset', d.reset_reason || '—', null, null, '');
+
+        // FreeRTOS tasks
+        setCard('tcv-tasks', d.task_count != null ? String(d.task_count) : '—',
+                'tcs-stacks',
+                (d.fsm_stack_hwm != null && d.audio_stack_hwm != null)
+                  ? `fsm: ${d.fsm_stack_hwm}w  audio: ${d.audio_stack_hwm}w` : 'stacks —', '');
+
+        // Events today + FSM state
+        const stateNames = ['IDLE', 'PROBING', 'ACTIVE'];
+        const stName = (d.state >= 0 && d.state <= 2) ? stateNames[d.state] : '?';
+        setCard('tcv-events', d.events_today != null ? String(d.events_today) : '—',
+                'tcs-state', `state: ${stName}`, '');
+
+      } catch (_) {}
+    }
+
+    // ── crossing/event ──────────────────────────────────────
+    const eventsTbody = document.getElementById('events-tbody');
+    const MAX_EVENT_ROWS = 20;
+
+    function handleCrossingEvent(payload) {
+      try {
+        const d = JSON.parse(payload);
+        eventsCount++;
+        const tr = document.createElement('tr');
+        tr.className = d.event === 'started' ? 'ev-started' : 'ev-ended';
+
+        const t = d.timestamp ? new Date(d.timestamp * 1000).toLocaleTimeString() : '—';
+        const dur = d.duration != null ? `${d.duration.toFixed(1)} s` : '—';
+        const probAt = d.probing_started_at ? new Date(d.probing_started_at * 1000).toLocaleTimeString() : '—';
+        const actAt  = d.active_at         ? new Date(d.active_at * 1000).toLocaleTimeString()         : '—';
+
+        tr.innerHTML = `
+          <td>${eventsCount}</td>
+          <td>${d.event || '—'}</td>
+          <td>${t}</td>
+          <td>${dur}</td>
+          <td>${probAt}</td>
+          <td>${actAt}</td>
+        `;
+        // Prepend so newest is at top
+        eventsTbody.insertBefore(tr, eventsTbody.firstChild);
+        // Trim to max rows
+        while (eventsTbody.rows.length > MAX_EVENT_ROWS) {
+          eventsTbody.removeChild(eventsTbody.lastChild);
+        }
+      } catch (_) {}
+    }
+
+    // ── mqtt_message dispatcher ─────────────────────────────
+    socket.on('mqtt_message', ({ topic, payload }) => {
+      if (topic === 'crossing/heartbeat')  handleHeartbeat(payload);
+      else if (topic === 'crossing/telemetry') handleTelemetry(payload);
+      else if (topic === 'crossing/event')    handleCrossingEvent(payload);
     });
 
     // ── Handle incoming configuration acknowledgements ──────

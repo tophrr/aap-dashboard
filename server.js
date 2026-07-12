@@ -183,6 +183,7 @@ function connectMQTT() {
     mqttClient.subscribe('crossing/heartbeat');
     mqttClient.subscribe('crossing/telemetry');
     mqttClient.subscribe('crossing/config/ack');
+    mqttClient.subscribe('crossing/rtt');
     io.emit('mqtt_status', { connected: true, broker: MQTT_BROKER });
   });
 
