@@ -392,15 +392,15 @@
     // ── Plotly init with empty traces ──────────────────────
     const graphDiv = document.getElementById('plotly-graph');
     const traceDefs = [
-      { name: 'RMS (dB)', color: '#f43f5e', dash: 'solid', yaxis: 'y', width: 1.5 },
+      { name: 'RMS (dB)', color: '#f43f5e', dash: 'solid', yaxis: 'y', width: 1.2 },
       { name: 'main (dB)', color: '#4ade80', dash: 'solid', yaxis: 'y', width: 1.5 },
       { name: 'sec (dB)', color: '#60a5fa', dash: 'solid', yaxis: 'y', width: 1.5 },
       { name: 'amb (dB)', color: '#94a3b8', dash: 'solid', yaxis: 'y', width: 1.5 },
       { name: 'amb_raw (dB)', color: '#64748b', dash: 'dash', yaxis: 'y', width: 1.2 },
-      { name: 'main_snr', color: '#4ade80', dash: 'dot', yaxis: 'y', width: 1 },
-      { name: 'sec_snr', color: '#60a5fa', dash: 'dot', yaxis: 'y', width: 1 },
-      { name: 'signal', color: '#facc15', dash: 'solid', yaxis: 'y2', width: 1 },
-      { name: 'cycles', color: '#c084fc', dash: 'solid', yaxis: 'y2', width: 1 },
+      { name: 'main_snr', color: '#4ade80', dash: 'dot', yaxis: 'y', width: 1.5 },
+      { name: 'sec_snr', color: '#60a5fa', dash: 'dot', yaxis: 'y', width: 1.5 },
+      { name: 'signal', color: '#facc15', dash: 'solid', yaxis: 'y2', width: 2 },
+      { name: 'cycles', color: '#c084fc', dash: 'solid', yaxis: 'y2', width: 2 },
     ];
     const NUM = traceDefs.length;
 
