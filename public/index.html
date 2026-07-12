@@ -173,7 +173,8 @@
           <span>Debug Logs</span>
         </label>
         <button class="btn" id="btn-refresh" style="background:#1e3a8a;border-color:#3b82f6">Refresh</button>
-        <button class="btn" id="btn-apply" style="background:#166534;border-color:#22c55e">Apply</button>
+        <button class="btn" id="btn-send-config" style="background:#166534;border-color:#22c55e">Send Config</button>
+        <button class="btn" id="btn-write-config" style="background:#b45309;border-color:#f59e0b">Write Config</button>
       </div>
     </div>
     <div class="tab-content active" id="tab-fsm"></div>
@@ -899,8 +900,8 @@
       tabBtns[key].addEventListener('click', () => switchTab(key));
     });
 
-    // ── Actions: Apply and Refresh ─────────────────────────
-    document.getElementById('btn-apply').addEventListener('click', () => {
+    // ── Helper: gather current form parameters ─────────────
+    function getFormConfig() {
       const config = {};
       params.forEach(p => {
         if (p.type === 'checkbox') {
@@ -911,14 +912,35 @@
         }
       });
       config.debug_enabled = headerDebug.checked;
+      return config;
+    }
+
+    // ── Actions: Send Config, Write Config, and Refresh ────
+    document.getElementById('btn-send-config').addEventListener('click', () => {
+      const config = getFormConfig();
+      config.persist = false;
 
       socket.emit('config_update', config);
-      const btn = document.getElementById('btn-apply');
+      const btn = document.getElementById('btn-send-config');
       btn.textContent = '✓ Sent';
       btn.style.background = '#14532d';
       setTimeout(() => {
-        btn.textContent = 'Apply';
+        btn.textContent = 'Send Config';
         btn.style.background = '#166534';
+      }, 2000);
+    });
+
+    document.getElementById('btn-write-config').addEventListener('click', () => {
+      const config = getFormConfig();
+      config.persist = true;
+
+      socket.emit('config_update', config);
+      const btn = document.getElementById('btn-write-config');
+      btn.textContent = '✓ Written';
+      btn.style.background = '#7c2d12';
+      setTimeout(() => {
+        btn.textContent = 'Write Config';
+        btn.style.background = '#b45309';
       }, 2000);
     });
 
