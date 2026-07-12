@@ -10,6 +10,10 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
 
+    .controls-bar input[type="range"] { width: 60px; height: 4px; appearance: none; background: #0f3460; border-radius: 2px; outline: none; }
+    .controls-bar input[type="range"]::-webkit-slider-thumb { appearance: none; width: 10px; height: 10px; border-radius: 50%; background: #4ade80; cursor: pointer; }
+    .controls-bar input[type="range"]::-moz-range-thumb { width: 10px; height: 10px; border-radius: 50%; background: #4ade80; cursor: pointer; border: none; }
+
     /* Header */
     .header { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: #16213e; border-bottom: 1px solid #0f3460; flex-shrink: 0; flex-wrap: wrap; }
     .header h1 { font-size: 16px; font-weight: 600; margin-right: auto; }
@@ -160,7 +164,15 @@
     </select>
     <label style="display:flex;align-items:center;gap:3px"><input type="checkbox" id="chk-autoscroll-graph" checked> AutoScroll</label>
     <button class="btn" id="btn-clear-data">Clear Data</button>
-    <span id="data-points" style="color:#94a3b8;margin-left:auto">0 points</span>
+    <span id="data-points" style="color:#94a3b8; margin-left:8px;">0 points</span>
+
+    <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
+      <span class="section-label">Audio</span>
+      <button class="btn" id="btn-audio-listen">Listen</button>
+      <button class="btn" id="btn-audio-record">Record</button>
+      <input type="range" id="audio-volume" min="0" max="1" step="0.05" value="1.0" title="Volume">
+      <canvas id="audio-visualizer" width="80" height="12" style="background:#0d1117; border:1px solid #0f3460; border-radius:3px; vertical-align:middle;" title="Signal Level"></canvas>
+    </div>
   </div>
 
   <div class="tabs-container">
@@ -467,7 +479,7 @@
     };
 
     const layoutBase = {
-      title: { text: 'Real-time DSP & FSM Data', font: { color: '#e0e0e0', size: 14 } },
+      title: { font: { color: '#e0e0e0', size: 14 } },
       paper_bgcolor: '#0d1117', plot_bgcolor: '#0d1117',
       font: { color: '#94a3b8' },
       margin: { l: 50, r: 30, t: 30, b: 40 },
@@ -857,7 +869,10 @@
       { id: 'wake_end_hour', label: 'Wake End Hour', min: 0, max: 23, step: 1, default: 5, unit: 'h', tab: 'other' },
       { id: 'led_enabled', label: 'LED Indicator Enabled', type: 'checkbox', default: true, tab: 'other' },
       { id: 'ota_enabled', label: 'OTA Enabled', type: 'checkbox', default: true, tab: 'other' },
-      { id: 'ota_port', label: 'OTA Port', type: 'number', min: 1024, max: 65535, step: 1, default: 3232, unit: '', tab: 'other' }
+      { id: 'ota_port', label: 'OTA Port', type: 'number', min: 1024, max: 65535, step: 1, default: 3232, unit: '', tab: 'other' },
+      { id: 'udp_stream_enabled', label: 'UDP Audio Streaming', type: 'checkbox', default: false, tab: 'other' },
+      { id: 'udp_host', label: 'UDP Target Host', type: 'text', default: '', tab: 'other' },
+      { id: 'udp_port', label: 'UDP Target Port', type: 'number', min: 1024, max: 65535, step: 1, default: 5001, unit: '', tab: 'other' }
     ];
 
     const paramValues = {};
@@ -891,6 +906,18 @@
         const chk = card.querySelector('input[type="checkbox"]');
         chk.addEventListener('change', () => {
           paramValues[p.id] = chk.checked;
+          savePersistedState({ params: { ...paramValues } });
+        });
+      } else if (p.type === 'text') {
+        card.classList.add('checkbox-card'); // layout horizontally
+        card.innerHTML = `
+          <label>${p.label}</label>
+          <input type="text" id="text-${p.id}" class="param-input" value="${val}" style="width:110px; text-align:left; color:#4ade80;">
+        `;
+        tabs[p.tab].appendChild(card);
+        const txt = card.querySelector('input[type="text"]');
+        txt.addEventListener('change', () => {
+          paramValues[p.id] = txt.value;
           savePersistedState({ params: { ...paramValues } });
         });
       } else if (p.type === 'number') {
@@ -1230,6 +1257,9 @@
             if (param.type === 'checkbox') {
               const chk = document.getElementById(`check-${paramId}`);
               if (chk) chk.checked = !!val;
+            } else if (param.type === 'text') {
+              const txt = document.getElementById(`text-${paramId}`);
+              if (txt) txt.value = val || '';
             } else {
               const slider = document.getElementById(`slider-${paramId}`);
               const input = document.getElementById(`input-${paramId}`);
@@ -1252,6 +1282,263 @@
       logContent.appendChild(div);
       if (chkAutoscroll.checked) logContent.scrollTop = logContent.scrollHeight;
     });
+
+    // ── Audio Monitor Player, Visualizer & WAV Recorder ──
+    let audioCtx = null;
+    let audioGain = null;
+    let nextAudioPlayTime = 0;
+    const SAMPLE_RATE = 16000;
+    const CHUNK_SIZE = 400;
+    const CHUNK_DURATION = CHUNK_SIZE / SAMPLE_RATE; // 0.025s (25ms)
+
+    const btnAudioListen = document.getElementById('btn-audio-listen');
+    const btnAudioRecord = document.getElementById('btn-audio-record');
+    const audioVolume = document.getElementById('audio-volume');
+    const audioVisualizer = document.getElementById('audio-visualizer');
+    const visualizerCtx = audioVisualizer.getContext('2d');
+
+    let isListening = false;
+    let isRecording = false;
+    let recordedChunks = []; // Array of Int16Array
+    let recordStartTime = 0;
+    let recordTimerInterval = null;
+
+    // Visualizer variables
+    let currentPeak = 0;
+    let displayedLevel = 0;
+    let lastClipTime = 0;
+
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SAMPLE_RATE });
+        audioGain = audioCtx.createGain();
+        audioGain.gain.value = parseFloat(audioVolume.value);
+        audioGain.connect(audioCtx.destination);
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    btnAudioListen.addEventListener('click', () => {
+      initAudio();
+      isListening = !isListening;
+      if (isListening) {
+        btnAudioListen.textContent = '🔊 Listening';
+        btnAudioListen.style.background = '#15803d'; // green
+        btnAudioListen.style.borderColor = '#166534';
+      } else {
+        btnAudioListen.textContent = 'Listen';
+        btnAudioListen.style.background = '';
+        btnAudioListen.style.borderColor = '';
+      }
+    });
+
+    audioVolume.addEventListener('input', () => {
+      if (audioGain) {
+        audioGain.gain.value = parseFloat(audioVolume.value);
+      }
+    });
+
+    btnAudioRecord.addEventListener('click', () => {
+      if (!isRecording) {
+        startRecording();
+      } else {
+        stopRecording();
+      }
+    });
+
+    function startRecording() {
+      recordedChunks = [];
+      isRecording = true;
+      recordStartTime = Date.now();
+      btnAudioRecord.textContent = '🔴 Stop (0s)';
+      btnAudioRecord.style.background = '#dc2626'; // red
+      btnAudioRecord.style.borderColor = '#991b1b';
+      recordTimerInterval = setInterval(() => {
+        const elapsedSec = Math.floor((Date.now() - recordStartTime) / 1000);
+        btnAudioRecord.textContent = `🔴 Stop (${elapsedSec}s)`;
+      }, 1000);
+    }
+
+    function stopRecording() {
+      isRecording = false;
+      clearInterval(recordTimerInterval);
+      btnAudioRecord.textContent = 'Record';
+      btnAudioRecord.style.background = '';
+      btnAudioRecord.style.borderColor = '';
+      
+      if (recordedChunks.length === 0) return;
+
+      // Create and download WAV
+      downloadWav();
+    }
+
+    function writeString(view, offset, string) {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+      }
+    }
+
+    function downloadWav() {
+      let totalSamples = 0;
+      for (const chunk of recordedChunks) {
+        totalSamples += chunk.length;
+      }
+
+      const buffer = new ArrayBuffer(44 + totalSamples * 2);
+      const view = new DataView(buffer);
+
+      /* RIFF identifier */
+      writeString(view, 0, 'RIFF');
+      /* file length */
+      view.setUint32(4, 36 + totalSamples * 2, true);
+      /* RIFF type */
+      writeString(view, 8, 'WAVE');
+      /* format chunk identifier */
+      writeString(view, 12, 'fmt ');
+      /* format chunk length */
+      view.setUint32(16, 16, true);
+      /* sample format (raw PCM = 1) */
+      view.setUint16(20, 1, true);
+      /* channel count (mono = 1) */
+      view.setUint16(22, 1, true);
+      /* sample rate */
+      view.setUint32(24, SAMPLE_RATE, true);
+      /* byte rate */
+      view.setUint32(28, SAMPLE_RATE * 2, true);
+      /* block align */
+      view.setUint16(32, 2, true);
+      /* bits per sample */
+      view.setUint16(34, 16, true);
+      /* data chunk identifier */
+      writeString(view, 36, 'data');
+      /* data chunk length */
+      view.setUint32(40, totalSamples * 2, true);
+
+      // Write PCM data
+      let offset = 44;
+      for (const chunk of recordedChunks) {
+        for (let i = 0; i < chunk.length; i++) {
+          view.setInt16(offset, chunk[i], true);
+          offset += 2;
+        }
+      }
+
+      const blob = new Blob([view], { type: 'audio/wav' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `debug_audio_${new Date().toISOString().replace(/[:.]/g, '-')}.wav`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      }, 100);
+    }
+
+    socket.on('audio_stream', (arrayBuffer) => {
+      const int16Array = new Int16Array(arrayBuffer);
+
+      if (isRecording) {
+        recordedChunks.push(int16Array);
+      }
+
+      if (!isListening && !isRecording) return;
+
+      // Calculate peak level for this chunk
+      let peak = 0;
+      for (let i = 0; i < int16Array.length; i++) {
+        const val = Math.abs(int16Array[i]) / 32768.0;
+        if (val > peak) peak = val;
+      }
+      currentPeak = peak;
+      if (peak >= 0.98) {
+        lastClipTime = Date.now();
+      }
+
+      // Only perform Web Audio playback if listening is enabled
+      if (!isListening || !audioCtx) return;
+
+      // Convert 16-bit signed PCM to float [-1.0, 1.0] for Web Audio API playback
+      const float32Array = new Float32Array(int16Array.length);
+      for (let i = 0; i < int16Array.length; i++) {
+        float32Array[i] = int16Array[i] / 32768.0;
+      }
+
+      // Create Buffer for playback
+      const audioBuf = audioCtx.createBuffer(1, CHUNK_SIZE, SAMPLE_RATE);
+      audioBuf.copyToChannel(float32Array, 0);
+
+      // Schedule playing
+      const currentTime = audioCtx.currentTime;
+      if (nextAudioPlayTime < currentTime) {
+        nextAudioPlayTime = currentTime + 0.05; // 50ms buffer to prevent crackling
+      }
+
+      const source = audioCtx.createBufferSource();
+      source.buffer = audioBuf;
+      source.connect(audioGain);
+      source.start(nextAudioPlayTime);
+
+      nextAudioPlayTime += CHUNK_DURATION;
+    });
+
+    function drawVisualizer() {
+      requestAnimationFrame(drawVisualizer);
+      const width = audioVisualizer.width;
+      const height = audioVisualizer.height;
+      
+      visualizerCtx.fillStyle = '#0d1117';
+      visualizerCtx.fillRect(0, 0, width, height);
+
+      const clipWidth = 8;
+      const gap = 3;
+      const meterWidth = width - clipWidth - gap;
+
+      if (!isListening && !isRecording) {
+        // Draw empty/grayed out meter
+        visualizerCtx.fillStyle = '#1e293b';
+        visualizerCtx.fillRect(0, 0, meterWidth, height);
+        
+        // Draw empty clip indicator
+        visualizerCtx.fillStyle = '#1e293b';
+        visualizerCtx.fillRect(meterWidth + gap, 0, clipWidth, height);
+        return;
+      }
+
+      // Smooth the peak level (fast attack, slower decay)
+      const targetLevel = currentPeak;
+      if (targetLevel > displayedLevel) {
+        displayedLevel = targetLevel; // instant attack
+      } else {
+        displayedLevel = displayedLevel * 0.85 + targetLevel * 0.15; // smooth decay
+      }
+
+      // Draw level bar background
+      visualizerCtx.fillStyle = '#1e293b';
+      visualizerCtx.fillRect(0, 0, meterWidth, height);
+
+      // Draw filled level bar with horizontal gradient
+      if (displayedLevel > 0) {
+        const grad = visualizerCtx.createLinearGradient(0, 0, meterWidth, 0);
+        grad.addColorStop(0, '#22c55e');   // Green
+        grad.addColorStop(0.7, '#eab308'); // Yellow
+        grad.addColorStop(1, '#ef4444');   // Red
+
+        visualizerCtx.fillStyle = grad;
+        visualizerCtx.fillRect(0, 0, Math.min(1.0, displayedLevel) * meterWidth, height);
+      }
+
+      // Draw clipping indicator (hold for 1 second)
+      const isClipping = (Date.now() - lastClipTime) < 1000;
+      visualizerCtx.fillStyle = isClipping ? '#ef4444' : '#311010'; // Bright red vs Dark red
+      visualizerCtx.fillRect(meterWidth + gap, 0, clipWidth, height);
+    }
+
+    drawVisualizer();
   </script>
 </body>
 </html>

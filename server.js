@@ -3,6 +3,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const { SerialPort } = require('serialport');
 const mqtt = require('mqtt');
+const dgram = require('dgram');
 
 const app = express();
 const server = http.createServer(app);
@@ -23,6 +24,21 @@ if (portEqualsIndex !== -1) {
   }
 }
 const PORT = parsedPort;
+
+// Parse UDP port from command line arguments or environment variable
+let parsedUdpPort = 5001;
+const udpPortEqualsIndex = args.findIndex(arg => arg.startsWith('--udp-port='));
+if (udpPortEqualsIndex !== -1) {
+  parsedUdpPort = parseInt(args[udpPortEqualsIndex].split('=')[1]);
+} else {
+  const udpPortSpaceIndex = args.indexOf('--udp-port');
+  if (udpPortSpaceIndex !== -1 && udpPortSpaceIndex + 1 < args.length) {
+    parsedUdpPort = parseInt(args[udpPortSpaceIndex + 1]);
+  } else {
+    parsedUdpPort = process.env.UDP_PORT || 5001;
+  }
+}
+const UDP_PORT = parseInt(parsedUdpPort);
 // Parse MQTT broker from command line arguments or environment variable
 let parsedMqttBroker = '';
 const mqttBrokerEqualsIndex = args.findIndex(arg => arg.startsWith('--mqtt-broker='));
@@ -280,6 +296,28 @@ function processLine(line, io, isMqtt = false) {
     text: line
   });
 }
+
+// ── UDP Audio Stream Server ──────────────────────────────────
+const udpServer = dgram.createSocket('udp4');
+
+udpServer.on('error', (err) => {
+  console.error(`[UDP] Server error:\n${err.stack}`);
+  udpServer.close();
+});
+
+udpServer.on('message', (msg, rinfo) => {
+  // msg contains 16-bit signed PCM mono audio samples from ESP32.
+  // Forward this binary buffer directly via socket.io.
+  io.emit('audio_stream', msg);
+});
+
+udpServer.on('listening', () => {
+  const address = udpServer.address();
+  console.log(`[UDP] Server listening on ${address.address}:${address.port}`);
+});
+
+// Bind to UDP_PORT on all interfaces
+udpServer.bind(UDP_PORT);
 
 // ── Start Server ────────────────────────────────────────────
 server.listen(PORT, () => {
