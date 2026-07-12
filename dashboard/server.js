@@ -23,7 +23,32 @@ if (portEqualsIndex !== -1) {
   }
 }
 const PORT = parsedPort;
-const MQTT_BROKER = 'mqtt://10.101.118.108:1883';
+// Parse MQTT broker from command line arguments or environment variable
+let parsedMqttBroker = '';
+const mqttBrokerEqualsIndex = args.findIndex(arg => arg.startsWith('--mqtt-broker='));
+const mqttEqualsIndex = args.findIndex(arg => arg.startsWith('--mqtt='));
+
+if (mqttBrokerEqualsIndex !== -1) {
+  parsedMqttBroker = args[mqttBrokerEqualsIndex].split('=')[1];
+} else if (mqttEqualsIndex !== -1) {
+  parsedMqttBroker = args[mqttEqualsIndex].split('=')[1];
+} else {
+  const mqttBrokerSpaceIndex = args.indexOf('--mqtt-broker');
+  const mqttSpaceIndex = args.indexOf('--mqtt');
+  if (mqttBrokerSpaceIndex !== -1 && mqttBrokerSpaceIndex + 1 < args.length) {
+    parsedMqttBroker = args[mqttBrokerSpaceIndex + 1];
+  } else if (mqttSpaceIndex !== -1 && mqttSpaceIndex + 1 < args.length) {
+    parsedMqttBroker = args[mqttSpaceIndex + 1];
+  } else {
+    parsedMqttBroker = process.env.MQTT_BROKER || process.env.MQTT_URL || 'mqtt://localhost:1883';
+  }
+}
+
+// Auto-prepend mqtt:// if no protocol is specified
+if (!parsedMqttBroker.includes('://')) {
+  parsedMqttBroker = 'mqtt://' + parsedMqttBroker;
+}
+const MQTT_BROKER = parsedMqttBroker;
 
 app.use(express.static('public'));
 
@@ -39,7 +64,7 @@ io.on('connection', (socket) => {
   // Emit current connection statuses to newly connected client
   socket.emit('mqtt_status', {
     connected: !!(mqttClient && mqttClient.connected),
-    broker: mqttClient && mqttClient.connected ? MQTT_BROKER : ''
+    broker: MQTT_BROKER
   });
 
   socket.emit('serial_status', {
@@ -137,21 +162,23 @@ io.on('connection', (socket) => {
 
   socket.on('mqtt_disconnect', () => {
     if (mqttClient) {
+      console.log('[MQTT] Disconnecting from broker');
       mqttClient.end(true);
       mqttClient = null;
-      io.emit('mqtt_status', { connected: false });
+      io.emit('mqtt_status', { connected: false, broker: MQTT_BROKER });
     }
   });
 });
 
 // ── MQTT Connection ──────────────────────────────────────────
 function connectMQTT() {
+  console.log(`[MQTT] Connecting to broker: ${MQTT_BROKER}`);
   mqttClient = mqtt.connect(MQTT_BROKER, {
     clientId: 'aap_tuner_' + Math.random().toString(16).slice(2, 8)
   });
 
   mqttClient.on('connect', () => {
-    console.log('[MQTT] Connected');
+    console.log(`[MQTT] Connected to ${MQTT_BROKER}`);
     mqttClient.subscribe('crossing/event');
     mqttClient.subscribe('crossing/heartbeat');
     mqttClient.subscribe('crossing/telemetry');
@@ -179,7 +206,7 @@ function connectMQTT() {
 
   mqttClient.on('close', () => {
     console.log('[MQTT] Disconnected');
-    io.emit('mqtt_status', { connected: false });
+    io.emit('mqtt_status', { connected: false, broker: MQTT_BROKER });
   });
 
   mqttClient.on('error', (err) => {
@@ -247,4 +274,5 @@ function processLine(line, io) {
 // ── Start Server ────────────────────────────────────────────
 server.listen(PORT, () => {
   console.log(`[Server] Tuning dashboard running on http://localhost:${PORT}`);
+  console.log(`[Server] Configured MQTT broker: ${MQTT_BROKER}`);
 });

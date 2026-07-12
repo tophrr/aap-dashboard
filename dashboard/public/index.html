@@ -254,7 +254,7 @@
         savePersistedState({ mqtt_connected: true });
       } else {
         mqttDot.className = 'status-dot red';
-        mqttLabel.textContent = 'disconnected';
+        mqttLabel.textContent = status.broker ? `disconnected (${status.broker.replace('mqtt://','')})` : 'disconnected';
         btnMqttConnect.disabled = false;
         btnMqttDisconnect.disabled = true;
         savePersistedState({ mqtt_connected: false });
