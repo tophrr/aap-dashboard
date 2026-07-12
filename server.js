@@ -93,7 +93,7 @@ io.on('connection', (socket) => {
     try {
       serialPort = new SerialPort({
         path: portPath,
-        baudRate: 921600,
+        baudRate: 460800,
         autoOpen: true
       });
       serialPort.on('open', () => {
