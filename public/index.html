@@ -194,6 +194,8 @@
         <button class="btn" id="btn-refresh" style="background:#1e3a8a;border-color:#3b82f6">Refresh</button>
         <button class="btn" id="btn-send-config" style="background:#166534;border-color:#22c55e">Send Config</button>
         <button class="btn" id="btn-write-config" style="background:#b45309;border-color:#f59e0b">Write Config</button>
+        <button class="btn" id="btn-req-telemetry" style="background:#0284c7;border-color:#0ea5e9" disabled>Request Telemetry</button>
+        <button class="btn danger" id="btn-restart-esp" style="background:#b91c1c;border-color:#ef4444" disabled>Restart ESP</button>
       </div>
     </div>
     <div class="tab-content active" id="tab-fsm"></div>
@@ -340,12 +342,16 @@
         mqttLabel.textContent = `connected ${status.broker.replace('mqtt://','')}`;
         btnMqttConnect.disabled = true;
         btnMqttDisconnect.disabled = false;
+        document.getElementById('btn-req-telemetry').disabled = false;
+        document.getElementById('btn-restart-esp').disabled = false;
         savePersistedState({ mqtt_connected: true });
       } else {
         mqttDot.className = 'status-dot red';
         mqttLabel.textContent = status.broker ? `disconnected (${status.broker.replace('mqtt://','')})` : 'disconnected';
         btnMqttConnect.disabled = false;
         btnMqttDisconnect.disabled = true;
+        document.getElementById('btn-req-telemetry').disabled = true;
+        document.getElementById('btn-restart-esp').disabled = true;
         savePersistedState({ mqtt_connected: false });
 
         // Auto-reconnect MQTT if it was supposed to be connected
@@ -1068,6 +1074,36 @@
         btn.textContent = 'Refresh';
         btn.style.background = '#1e3a8a';
       }, 2000);
+    });
+
+    document.getElementById('btn-req-telemetry').addEventListener('click', () => {
+      socket.emit('esp_telemetry_req');
+      const btn = document.getElementById('btn-req-telemetry');
+      const origText = btn.textContent;
+      const origBg = btn.style.background;
+      btn.textContent = '✓ Requesting...';
+      btn.disabled = true;
+      setTimeout(() => {
+        btn.textContent = origText;
+        btn.style.background = origBg;
+        btn.disabled = false;
+      }, 2000);
+    });
+
+    document.getElementById('btn-restart-esp').addEventListener('click', () => {
+      if (confirm('Are you sure you want to restart the ESP32 device?')) {
+        socket.emit('esp_restart');
+        const btn = document.getElementById('btn-restart-esp');
+        const origText = btn.textContent;
+        const origBg = btn.style.background;
+        btn.textContent = '⚡ Restarting...';
+        btn.disabled = true;
+        setTimeout(() => {
+          btn.textContent = origText;
+          btn.style.background = origBg;
+          btn.disabled = false;
+        }, 5000);
+      }
     });
 
     // ── Status & Telemetry Tab Logic ────────────────────────────────

@@ -120,6 +120,41 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ── Restart ESP ─────────────────────────────────────────
+  socket.on('esp_restart', () => {
+    console.log('[ESP] Sending restart command');
+    if (mqttClient && mqttClient.connected) {
+      mqttClient.publish('crossing/restart', '{}');
+      io.emit('event_log', {
+        time: new Date().toLocaleTimeString(),
+        text: `[ESP] Sent restart command`
+      });
+    } else {
+      io.emit('event_log', {
+        time: new Date().toLocaleTimeString(),
+        text: `[ESP] MQTT not connected — restart command not sent`
+      });
+    }
+  });
+
+  // ── Request Telemetry ───────────────────────────────────
+  socket.on('esp_telemetry_req', () => {
+    console.log('[ESP] Sending telemetry request');
+    if (mqttClient && mqttClient.connected) {
+      mqttClient.publish('crossing/telemetry/req', '{}');
+      io.emit('event_log', {
+        time: new Date().toLocaleTimeString(),
+        text: `[ESP] Sent telemetry request`
+      });
+    } else {
+      io.emit('event_log', {
+        time: new Date().toLocaleTimeString(),
+        text: `[ESP] MQTT not connected — telemetry request not sent`
+      });
+    }
+  });
+
+
   // ── MQTT connection request ────────────────────────────
   socket.on('mqtt_connect', () => {
     if (mqttClient && mqttClient.connected) return;
