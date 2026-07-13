@@ -172,6 +172,7 @@
       <button class="btn" id="btn-audio-record">Record</button>
       <input type="range" id="audio-volume" min="0" max="1" step="0.05" value="1.0" title="Volume">
       <canvas id="audio-visualizer" width="80" height="12" style="background:#0d1117; border:1px solid #0f3460; border-radius:3px; vertical-align:middle;" title="Signal Level"></canvas>
+      <span id="udp-stats" style="font-family: monospace; font-size: 11px; color: #94a3b8; margin-left: 4px; display: none;"></span>
     </div>
   </div>
 
@@ -1296,6 +1297,7 @@
     const audioVolume = document.getElementById('audio-volume');
     const audioVisualizer = document.getElementById('audio-visualizer');
     const visualizerCtx = audioVisualizer.getContext('2d');
+    const udpStatsEl = document.getElementById('udp-stats');
 
     let isListening = false;
     let isRecording = false;
@@ -1484,6 +1486,23 @@
       source.start(nextAudioPlayTime);
 
       nextAudioPlayTime += CHUNK_DURATION;
+    });
+
+    socket.on('audio_stats', (stats) => {
+      if (!isListening && !isRecording) {
+        udpStatsEl.style.display = 'none';
+        return;
+      }
+      udpStatsEl.style.display = 'inline';
+      
+      let color = '#4ade80'; // Green
+      if (stats.dropped > 0 || stats.late > 0) {
+        color = '#ef4444'; // Red
+      } else if (stats.jitter > 15) {
+        color = '#eab308'; // Yellow
+      }
+      
+      udpStatsEl.innerHTML = `Jitter: <span style="color:${color}; font-weight:bold;">${stats.jitter}ms</span> | Drops: <span style="color:${stats.dropped > 0 ? '#ef4444' : '#94a3b8'}; font-weight:${stats.dropped > 0 ? 'bold' : 'normal'}">${stats.dropped}</span> | Late: <span style="color:${stats.late > 0 ? '#ef4444' : '#94a3b8'}; font-weight:${stats.late > 0 ? 'bold' : 'normal'}">${stats.late}</span>`;
     });
 
     function drawVisualizer() {

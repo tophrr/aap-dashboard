@@ -254,6 +254,113 @@ function processLine(line, io, isMqtt = false) {
   });
 }
 
+// ── UDP Jitter Buffer State ──────────────────────────────────
+let expectedSequence = null;
+let playoutInterval = null;
+let statsInterval = null;
+let packetBuffer = new Map(); // sequence -> { timestamp, samples }
+let emptyTicks = 0;
+
+// Statistics
+let totalPacketsReceived = 0;
+let droppedPackets = 0;
+let latePackets = 0;
+let currentJitter = 0.0;
+let lastTransitTime = null;
+
+function resetJitterBuffer() {
+  if (playoutInterval) {
+    clearInterval(playoutInterval);
+    playoutInterval = null;
+  }
+  if (statsInterval) {
+    clearInterval(statsInterval);
+    statsInterval = null;
+  }
+  packetBuffer.clear();
+  expectedSequence = null;
+  emptyTicks = 0;
+}
+
+function startPlayout() {
+  if (playoutInterval) clearInterval(playoutInterval);
+  playoutInterval = setInterval(playoutTick, 25);
+
+  if (statsInterval) clearInterval(statsInterval);
+  statsInterval = setInterval(emitStats, 1000);
+}
+
+function playoutTick() {
+  if (packetBuffer.has(expectedSequence)) {
+    const packet = packetBuffer.get(expectedSequence);
+    io.emit('audio_stream', packet.samples);
+    packetBuffer.delete(expectedSequence);
+    expectedSequence++;
+    emptyTicks = 0;
+  } else {
+    // Expected packet is missing.
+    // Check if there are any packets with sequence number > expectedSequence in buffer
+    let hasFuturePackets = false;
+    for (const seq of packetBuffer.keys()) {
+      if (seq > expectedSequence) {
+        hasFuturePackets = true;
+        break;
+      }
+    }
+
+    if (hasFuturePackets) {
+      // Find minimum sequence number in buffer to detect large gaps
+      let minSeqInBuf = null;
+      for (const seq of packetBuffer.keys()) {
+        if (minSeqInBuf === null || seq < minSeqInBuf) {
+          minSeqInBuf = seq;
+        }
+      }
+
+      if (minSeqInBuf !== null && minSeqInBuf > expectedSequence + 20) {
+        console.warn(`[UDP] Large sequence gap detected. Jumping from ${expectedSequence} to ${minSeqInBuf}`);
+        droppedPackets += (minSeqInBuf - expectedSequence);
+        expectedSequence = minSeqInBuf;
+        
+        // Playout the packet at minSeqInBuf
+        const packet = packetBuffer.get(expectedSequence);
+        io.emit('audio_stream', packet.samples);
+        packetBuffer.delete(expectedSequence);
+        expectedSequence++;
+        emptyTicks = 0;
+      } else {
+        // Normal small gap. Emit silence and advance.
+        io.emit('audio_stream', Buffer.alloc(800));
+        droppedPackets++;
+        expectedSequence++;
+        emptyTicks = 0;
+      }
+    } else {
+      // Buffer is completely empty of expected and future packets.
+      emptyTicks++;
+      if (emptyTicks > 40) {
+        // 1 second of complete silence -> stream stopped, reset playout
+        console.log(`[UDP] Stream idle for 1s. Resetting jitter buffer.`);
+        resetJitterBuffer();
+      } else {
+        // Emit silence for transient gap
+        io.emit('audio_stream', Buffer.alloc(800));
+        droppedPackets++;
+        expectedSequence++;
+      }
+    }
+  }
+}
+
+function emitStats() {
+  io.emit('audio_stats', {
+    received: totalPacketsReceived,
+    dropped: droppedPackets,
+    late: latePackets,
+    jitter: Math.round(currentJitter * 10) / 10
+  });
+}
+
 // ── UDP Audio Stream Server ──────────────────────────────────
 const udpServer = dgram.createSocket('udp4');
 
@@ -263,9 +370,48 @@ udpServer.on('error', (err) => {
 });
 
 udpServer.on('message', (msg, rinfo) => {
-  // msg contains 16-bit signed PCM mono audio samples from ESP32.
-  // Forward this binary buffer directly via socket.io.
-  io.emit('audio_stream', msg);
+  // Validate packet length: 4 bytes seq + 4 bytes ts + 800 bytes samples = 808
+  if (msg.length !== 808) {
+    console.warn(`[UDP] Invalid packet length: ${msg.length} bytes (expected 808)`);
+    return;
+  }
+
+  const sequence = msg.readUInt32LE(0);
+  const timestamp = msg.readUInt32LE(4);
+  const samples = Buffer.from(msg.subarray(8));
+
+  const now = Date.now();
+  const transitTime = now - timestamp;
+
+  // Jitter calculation (RFC 3550)
+  if (lastTransitTime !== null) {
+    const diff = Math.abs(transitTime - lastTransitTime);
+    currentJitter = currentJitter + (diff - currentJitter) / 16;
+  }
+  lastTransitTime = transitTime;
+  totalPacketsReceived++;
+
+  if (expectedSequence === null) {
+    packetBuffer.set(sequence, { timestamp, samples });
+
+    // Wait until we have 4 packets (100ms worth) before starting playout
+    if (packetBuffer.size >= 4) {
+      let minSeq = sequence;
+      for (const seq of packetBuffer.keys()) {
+        if (seq < minSeq) minSeq = seq;
+      }
+      expectedSequence = minSeq;
+      emptyTicks = 0;
+      console.log(`[UDP] Jitter buffer filled. Starting playout at sequence ${expectedSequence}`);
+      startPlayout();
+    }
+  } else {
+    if (sequence < expectedSequence) {
+      latePackets++;
+    } else {
+      packetBuffer.set(sequence, { timestamp, samples });
+    }
+  }
 });
 
 udpServer.on('listening', () => {
