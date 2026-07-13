@@ -4,67 +4,17 @@ const { Server } = require('socket.io');
 const { SerialPort } = require('serialport');
 const mqtt = require('mqtt');
 const dgram = require('dgram');
+const {
+  PORT,
+  UDP_PORT,
+  MQTT_BROKER,
+  MQTT_USERNAME,
+  MQTT_PASSWORD
+} = require('./config');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
-
-// Parse port from command line arguments or environment variable
-let parsedPort = 3000;
-const args = process.argv.slice(2);
-const portEqualsIndex = args.findIndex(arg => arg.startsWith('--port='));
-if (portEqualsIndex !== -1) {
-  parsedPort = parseInt(args[portEqualsIndex].split('=')[1]);
-} else {
-  const portSpaceIndex = args.indexOf('--port');
-  if (portSpaceIndex !== -1 && portSpaceIndex + 1 < args.length) {
-    parsedPort = parseInt(args[portSpaceIndex + 1]);
-  } else {
-    parsedPort = process.env.PORT || 3000;
-  }
-}
-const PORT = parsedPort;
-
-// Parse UDP port from command line arguments or environment variable
-let parsedUdpPort = 5001;
-const udpPortEqualsIndex = args.findIndex(arg => arg.startsWith('--udp-port='));
-if (udpPortEqualsIndex !== -1) {
-  parsedUdpPort = parseInt(args[udpPortEqualsIndex].split('=')[1]);
-} else {
-  const udpPortSpaceIndex = args.indexOf('--udp-port');
-  if (udpPortSpaceIndex !== -1 && udpPortSpaceIndex + 1 < args.length) {
-    parsedUdpPort = parseInt(args[udpPortSpaceIndex + 1]);
-  } else {
-    parsedUdpPort = process.env.UDP_PORT || 5001;
-  }
-}
-const UDP_PORT = parseInt(parsedUdpPort);
-// Parse MQTT broker from command line arguments or environment variable
-let parsedMqttBroker = '';
-const mqttBrokerEqualsIndex = args.findIndex(arg => arg.startsWith('--mqtt-broker='));
-const mqttEqualsIndex = args.findIndex(arg => arg.startsWith('--mqtt='));
-
-if (mqttBrokerEqualsIndex !== -1) {
-  parsedMqttBroker = args[mqttBrokerEqualsIndex].split('=')[1];
-} else if (mqttEqualsIndex !== -1) {
-  parsedMqttBroker = args[mqttEqualsIndex].split('=')[1];
-} else {
-  const mqttBrokerSpaceIndex = args.indexOf('--mqtt-broker');
-  const mqttSpaceIndex = args.indexOf('--mqtt');
-  if (mqttBrokerSpaceIndex !== -1 && mqttBrokerSpaceIndex + 1 < args.length) {
-    parsedMqttBroker = args[mqttBrokerSpaceIndex + 1];
-  } else if (mqttSpaceIndex !== -1 && mqttSpaceIndex + 1 < args.length) {
-    parsedMqttBroker = args[mqttSpaceIndex + 1];
-  } else {
-    parsedMqttBroker = process.env.MQTT_BROKER || process.env.MQTT_URL || 'mqtt://localhost:1883';
-  }
-}
-
-// Auto-prepend mqtt:// if no protocol is specified
-if (!parsedMqttBroker.includes('://')) {
-  parsedMqttBroker = 'mqtt://' + parsedMqttBroker;
-}
-const MQTT_BROKER = parsedMqttBroker;
 
 app.use(express.static('public'));
 
@@ -189,9 +139,16 @@ io.on('connection', (socket) => {
 // ── MQTT Connection ──────────────────────────────────────────
 function connectMQTT() {
   console.log(`[MQTT] Connecting to broker: ${MQTT_BROKER}`);
-  mqttClient = mqtt.connect(MQTT_BROKER, {
+  const options = {
     clientId: 'aap_tuner_' + Math.random().toString(16).slice(2, 8)
-  });
+  };
+  if (MQTT_USERNAME) {
+    options.username = MQTT_USERNAME;
+  }
+  if (MQTT_PASSWORD) {
+    options.password = MQTT_PASSWORD;
+  }
+  mqttClient = mqtt.connect(MQTT_BROKER, options);
 
   mqttClient.on('connect', () => {
     console.log(`[MQTT] Connected to ${MQTT_BROKER}`);
