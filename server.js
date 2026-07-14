@@ -193,6 +193,7 @@ function connectMQTT() {
     mqttClient.subscribe('crossing/config/ack');
     mqttClient.subscribe('crossing/rtt');
     mqttClient.subscribe('crossing/log');
+    mqttClient.subscribe('crossing/rssi');
     io.emit('mqtt_status', { connected: true, broker: MQTT_BROKER });
   });
 

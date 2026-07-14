@@ -194,7 +194,6 @@
         <button class="btn" id="btn-refresh" style="background:#1e3a8a;border-color:#3b82f6">Refresh</button>
         <button class="btn" id="btn-send-config" style="background:#166534;border-color:#22c55e">Send Config</button>
         <button class="btn" id="btn-write-config" style="background:#b45309;border-color:#f59e0b">Write Config</button>
-        <button class="btn" id="btn-req-telemetry" style="background:#0284c7;border-color:#0ea5e9" disabled>Request Telemetry</button>
         <button class="btn danger" id="btn-restart-esp" style="background:#b91c1c;border-color:#ef4444" disabled>Restart ESP</button>
       </div>
     </div>
@@ -208,6 +207,7 @@
         <div class="hb-pulse" id="hb-pulse"></div>
         <span class="hb-label">Edge Device</span>
         <span class="hb-value" id="hb-status-text">waiting&hellip;</span>
+        <button class="btn" id="btn-req-telemetry" style="background:#0284c7;border-color:#0ea5e9;padding:2px 8px;font-size:10px;margin-left:12px;height:24px;line-height:1;" disabled>Request Telemetry</button>
         <span style="margin-left:auto;display:flex;gap:16px">
           <span><span class="hb-label">Uptime</span> <span class="hb-value" id="hb-uptime">&mdash;</span></span>
           <span><span class="hb-label">Last Seen</span> <span class="hb-value" id="hb-last-seen">&mdash;</span></span>
@@ -445,6 +445,10 @@
       main_snr: [], sec_snr: [],
       signal: [], cycles: [],
     };
+    const wifiRssiData = {
+      time: [],
+      rssi: []
+    };
     let stateShapes = [];
 
     function stateColor(s) {
@@ -468,6 +472,7 @@
       { name: 'sec_snr', color: '#60a5fa', dash: 'dot', yaxis: 'y', width: 1.5 },
       { name: 'signal', color: '#facc15', dash: 'solid', yaxis: 'y2', width: 2 },
       { name: 'cycles', color: '#c084fc', dash: 'solid', yaxis: 'y2', width: 2 },
+      { name: 'WiFi RSSI (dBm)', color: '#06b6d4', dash: 'solid', yaxis: 'y', width: 1.5 },
     ];
     const NUM = traceDefs.length;
 
@@ -700,8 +705,8 @@
         const stepSignal = makeStepData(time, data.signal);
         const stepCycles = makeStepData(time, data.cycles);
         
-        updateData.x.push(stepSignal.x, stepCycles.x);
-        updateData.y.push(stepSignal.y, stepCycles.y);
+        updateData.x.push(stepSignal.x, stepCycles.x, wifiRssiData.time);
+        updateData.y.push(stepSignal.y, stepCycles.y, wifiRssiData.rssi);
 
         Plotly.update(graphDiv, updateData, u, Array.from({length: NUM}, (_, i) => i));
         dataPointsSpan.textContent = `${time.length} points`;
@@ -834,6 +839,8 @@
       data.main_db = []; data.sec_db = []; data.amb_db = []; data.amb_raw_db = [];
       data.main_snr = []; data.sec_snr = [];
       data.signal = []; data.cycles = [];
+      wifiRssiData.time = [];
+      wifiRssiData.rssi = [];
       stateShapes = [];
       lastStateTime = null;
       lastFrameNum = null;
@@ -876,6 +883,7 @@
       { id: 'wake_end_hour', label: 'Wake End Hour', min: 0, max: 23, step: 1, default: 5, unit: 'h', tab: 'other' },
       { id: 'led_enabled', label: 'LED Indicator Enabled', type: 'checkbox', default: true, tab: 'other' },
       { id: 'ota_enabled', label: 'OTA Enabled', type: 'checkbox', default: true, tab: 'other' },
+      { id: 'rssi_telemetry_enabled', label: 'Publish RSSI Telemetry', type: 'checkbox', default: true, tab: 'other' },
       { id: 'ota_port', label: 'OTA Port', type: 'number', min: 1024, max: 65535, step: 1, default: 3232, unit: '', tab: 'other' },
       { id: 'udp_stream_enabled', label: 'UDP Audio Streaming', type: 'checkbox', default: false, tab: 'other' },
       { id: 'udp_host', label: 'UDP Target Host', type: 'text', default: '', tab: 'other' },
@@ -1231,6 +1239,29 @@
       } catch (_) {}
     }
 
+    function handleRssiMessage(payload) {
+      try {
+        const d = JSON.parse(payload);
+        if (d.timestamp && d.rssi != null) {
+          const t = d.timestamp * 1000;
+          wifiRssiData.time.push(t);
+          wifiRssiData.rssi.push(d.rssi);
+          
+          if (wifiRssiData.time.length > 500) {
+            wifiRssiData.time.shift();
+            wifiRssiData.rssi.shift();
+          }
+          
+          const rssiClass = d.rssi > -65 ? 'good' : d.rssi > -80 ? 'warn' : 'danger';
+          setCard('tcv-rssi', `${d.rssi} dBm`, null, null, rssiClass);
+          
+          needsUpdate = true;
+        }
+      } catch (err) {
+        console.error('[MQTT] Error parsing RSSI payload:', err);
+      }
+    }
+
     // ── crossing/event ──────────────────────────────────────
     const eventsTbody = document.getElementById('events-tbody');
     const MAX_EVENT_ROWS = 20;
@@ -1269,6 +1300,7 @@
       if (topic === 'crossing/heartbeat')  handleHeartbeat(payload);
       else if (topic === 'crossing/telemetry') handleTelemetry(payload);
       else if (topic === 'crossing/event')    handleCrossingEvent(payload);
+      else if (topic === 'crossing/rssi')     handleRssiMessage(payload);
     });
 
     // ── Handle incoming configuration acknowledgements ──────
