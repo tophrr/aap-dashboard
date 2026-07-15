@@ -34,9 +34,21 @@ graph TD
         BROKER[MQTT Broker]
     end
 
+    subgraph ML ["Machine Learning Service"]
+        MLPRED["Online ML Predictor (Python)"]
+    end
+
+    subgraph Logging ["Data Logging"]
+        LOGGER["MQTT Logger (Python)"]
+        SQL[(SQLite Database)]
+    end
+
     ESP32 -->|USB Serial Debug Stream| SP
     ESP32 <-->|MQTT Topics| BROKER
     BROKER <-->|MQTT Topics| MQTTJS
+    BROKER <-->|crossing/status & predictions| MLPRED
+    BROKER -->|crossing/#| LOGGER
+    LOGGER -->|Writes events| SQL
 ```
 
 ---
@@ -101,6 +113,38 @@ PORT=8080 MQTT_BROKER=mqtt://192.168.1.150 npm start
     ```
 
 Once started, open your web browser and navigate to `http://localhost:3000` (or your configured port) to access the dashboard.
+
+### Machine Learning Service Details & Setup
+
+The repository includes a Python-based Online Machine Learning service (`ml_predictor/`) that predicts future crossing durations and wait times.
+
+#### How It Works
+
+The ML service uses **online machine learning** to continuously update its models in real-time as new data arrives.
+
+1. **Data Ingestion:** Subscribes to the `crossing/event` MQTT topic and listens for `ended` events (which provide timestamp and duration).
+2. **Feature Extraction:** Extracts temporal features (sine/cosine of hour and day of week) and historical context (previous duration and wait time).
+3. **Online Learning (Self-Correction):** Calculates the actual wait time and duration when an event ends, and immediately trains its models using the previous features (via `river`'s `HoeffdingTreeRegressor`).
+4. **Prediction:** Extracts features for the current moment and predicts the *next* wait time and duration.
+5. **EMA Fallback:** Maintains an Exponential Moving Average (EMA). If the ML model has seen fewer than 100 samples, or if its prediction deviates from the EMA by >40%, it safely falls back to the EMA baseline.
+6. **State Persistence:** Model state is saved locally to `model_state.pkl` after every event to preserve learning.
+7. **Publishing:** Predictions are published to `crossing/predictions` for the dashboard UI.
+
+#### Running the Predictor
+
+1. Navigate to the predictor directory: `cd ml_predictor`
+2. Install dependencies: `pip install -r requirements.txt`
+3. Run the service: `python main.py`
+    * *Tip: Enable verbose debug logging by prefixing with `VERBOSE=1` (or `$env:VERBOSE="1"` in PowerShell).*
+4. (Optional) For testing, run the mock edge node in a separate terminal: `python mock_edge.py`
+
+### Running the MQTT Logger Service
+
+The repository also includes a Python script (`logger/logger.py`) that subscribes to all `crossing/#` topics and logs raw payloads to a local SQLite database for historical analysis.
+
+1. Navigate to the logger directory: `cd logger`
+2. Install dependencies (e.g., `pip install paho-mqtt python-dotenv`)
+3. Run the logger: `python logger.py`
 
 ---
 
