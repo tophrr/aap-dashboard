@@ -118,7 +118,7 @@ Once started, open your web browser and navigate to `http://localhost:3000` (or 
 
 ### 3. Remote Parameter Tuning
 
-* Provides sliders to adjust DSP thresholds (`main_snr_db`, `sec_snr_db`, `alpha_attack`, `alpha_decay`) and FSM timings (`cycle_target_ms`, `cycle_tolerance_ms`, `required_cycles`).
+* Provides sliders to adjust DSP thresholds (`main_snr_db`, `sec_snr_db`, `alpha_attack`, `alpha_decay`, `alpha_signal`) and FSM timings (`cycle_target_ms`, `cycle_tolerance_ms`, `required_cycles`).
 * Includes a **Persist to NVS** checkbox. When enabled, settings will survive an ESP32 hardware reboot.
 * Click **Apply** to publish the changes immediately to the `crossing/config` topic.
 * Click **Refresh** to request the node's current configuration from the NVS storage via the `crossing/config/req` topic.
