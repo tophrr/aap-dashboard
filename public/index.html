@@ -182,6 +182,7 @@
       <button class="tab-btn" id="tab-btn-dsp">DSP Settings</button>
       <button class="tab-btn" id="tab-btn-other">System Settings</button>
       <button class="tab-btn" id="tab-btn-status">Status &amp; Telemetry</button>
+      <button class="tab-btn" id="tab-btn-sim">Simulator</button>
       <div style="margin-left:auto; display:flex; gap:8px; align-items:center; padding-bottom:4px;">
         <label style="display:flex; align-items:center; gap:4px; font-size:11px; margin-right:8px; cursor:pointer; color:#94a3b8; user-select:none;">
           <input type="checkbox" id="header-debug-enabled" style="width:14px; height:14px; accent-color:#4ade80; cursor:pointer;">
@@ -235,6 +236,38 @@
           </tr></thead>
           <tbody id="events-tbody"></tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- Simulator tab -->
+    <div class="tab-content" id="tab-sim">
+      <div style="padding: 16px 20px; background: #1a1a2e; border: 1px solid #0f3460; border-radius: 6px; display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 24px; width: 550px; box-sizing: border-box;">
+        
+        <div style="display: flex; flex-direction: column; gap: 12px; flex: 1;">
+          <div>
+            <h2 style="font-size: 14px; color: #e0e0e0; margin: 0 0 4px 0;">Buzzer Simulator</h2>
+            <p style="font-size: 11px; color: #94a3b8; margin: 0;">
+              Generates 1253Hz and 662Hz signals with a 600ms on/off rhythmic pattern.
+            </p>
+          </div>
+          <div style="width: 100%; display: flex; flex-direction: column; gap: 4px;">
+            <label style="font-size: 11px; color: #94a3b8; display: flex; justify-content: space-between;">
+              Volume <span id="sim-vol-val">50%</span>
+            </label>
+            <input type="range" id="sim-volume" min="0" max="1" step="0.01" value="0.5" style="width: 100%;">
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; flex-shrink: 0; width: 180px;">
+          <button id="btn-sim-toggle" class="btn" style="background: #166534; border-color: #22c55e; padding: 12px 0; font-size: 15px; font-weight: bold; width: 100%; position: relative; display: flex; align-items: center; justify-content: center;">
+            <span id="btn-sim-text">Start Simulation</span>
+            <div id="sim-indicator" style="position: absolute; right: 12px; width: 10px; height: 10px; border-radius: 50%; background: #4b5563; transition: background 0.1s, box-shadow 0.1s;"></div>
+          </button>
+          <div id="sim-status" style="font-size: 11px; font-family: monospace; color: #94a3b8;">
+            Status: Stopped
+          </div>
+        </div>
+        
       </div>
     </div>
   </div>
@@ -1002,14 +1035,16 @@
       fsm: document.getElementById('tab-btn-fsm'),
       dsp: document.getElementById('tab-btn-dsp'),
       other: document.getElementById('tab-btn-other'),
-      status: document.getElementById('tab-btn-status')
+      status: document.getElementById('tab-btn-status'),
+      sim: document.getElementById('tab-btn-sim')
     };
 
     const tabContents = {
       fsm:    document.getElementById('tab-fsm'),
       dsp:    document.getElementById('tab-dsp'),
       other:  document.getElementById('tab-other'),
-      status: document.getElementById('tab-status')
+      status: document.getElementById('tab-status'),
+      sim:    document.getElementById('tab-sim')
     };
 
     function switchTab(tabName) {
@@ -1028,6 +1063,102 @@
     Object.keys(tabBtns).forEach(key => {
       tabBtns[key].addEventListener('click', () => switchTab(key));
     });
+
+    // ── Simulator Logic ────────────────────────────────────
+    let simAudioCtx = null;
+    let simOsc1 = null;
+    let simOsc2 = null;
+    let simGain = null;
+    let simInterval = null;
+    let isSimRunning = false;
+    let isSimPulseOn = false;
+
+    const btnSimToggle = document.getElementById('btn-sim-toggle');
+    const simStatus = document.getElementById('sim-status');
+    const btnSimText = document.getElementById('btn-sim-text');
+    const simIndicator = document.getElementById('sim-indicator');
+    const simVolume = document.getElementById('sim-volume');
+    const simVolVal = document.getElementById('sim-vol-val');
+
+    if (simVolume) {
+      simVolume.addEventListener('input', (e) => {
+        simVolVal.textContent = Math.round(e.target.value * 100) + '%';
+        if (isSimRunning && isSimPulseOn && simGain) {
+          simGain.gain.setValueAtTime(parseFloat(e.target.value), simAudioCtx.currentTime);
+        }
+      });
+    }
+
+    function toggleSimulator() {
+      if (!isSimRunning) {
+        if (!simAudioCtx) {
+          simAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (simAudioCtx.state === 'suspended') {
+          simAudioCtx.resume();
+        }
+
+        simGain = simAudioCtx.createGain();
+        simGain.gain.value = 0; // start muted
+        simGain.connect(simAudioCtx.destination);
+
+        simOsc1 = simAudioCtx.createOscillator();
+        simOsc1.type = 'sine';
+        simOsc1.frequency.value = 1253.0;
+        simOsc1.connect(simGain);
+        simOsc1.start();
+
+        simOsc2 = simAudioCtx.createOscillator();
+        simOsc2.type = 'sine';
+        simOsc2.frequency.value = 662.0;
+        simOsc2.connect(simGain);
+        simOsc2.start();
+
+        isSimPulseOn = true;
+        const currentVol = parseFloat(simVolume.value);
+        simGain.gain.setValueAtTime(currentVol, simAudioCtx.currentTime); // Turn on immediately
+        simStatus.textContent = 'Status: Pulse ON';
+        simIndicator.style.background = '#4ade80';
+        simIndicator.style.boxShadow = '0 0 8px #4ade80';
+        
+        simInterval = setInterval(() => {
+          isSimPulseOn = !isSimPulseOn;
+          if (isSimPulseOn) {
+            simGain.gain.setValueAtTime(parseFloat(simVolume.value), simAudioCtx.currentTime);
+            simStatus.textContent = 'Status: Pulse ON';
+            simIndicator.style.background = '#4ade80';
+            simIndicator.style.boxShadow = '0 0 8px #4ade80';
+          } else {
+            simGain.gain.setValueAtTime(0, simAudioCtx.currentTime);
+            simStatus.textContent = 'Status: Pulse OFF';
+            simIndicator.style.background = '#4b5563';
+            simIndicator.style.boxShadow = 'none';
+          }
+        }, 600);
+
+        isSimRunning = true;
+        btnSimText.textContent = 'Stop Simulation';
+        btnSimToggle.style.background = '#b91c1c';
+        btnSimToggle.style.borderColor = '#ef4444';
+      } else {
+        clearInterval(simInterval);
+        if (simOsc1) simOsc1.stop();
+        if (simOsc2) simOsc2.stop();
+        if (simGain) simGain.disconnect();
+        
+        isSimRunning = false;
+        btnSimText.textContent = 'Start Simulation';
+        btnSimToggle.style.background = '#166534';
+        btnSimToggle.style.borderColor = '#22c55e';
+        simStatus.textContent = 'Status: Stopped';
+        simIndicator.style.background = '#4b5563';
+        simIndicator.style.boxShadow = 'none';
+      }
+    }
+
+    if (btnSimToggle) {
+      btnSimToggle.addEventListener('click', toggleSimulator);
+    }
 
     // ── Helper: gather current form parameters ─────────────
     function getFormConfig() {
