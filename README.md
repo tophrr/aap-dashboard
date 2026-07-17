@@ -15,6 +15,12 @@ The diagram below shows how the dashboard acts as the bridge between the physica
 
 ```mermaid
 graph TD
+    subgraph PublicWeb ["Public Website (Next.js)"]
+        NEXT[Next.js App]
+        DISP[Displays Current/Last Event & ML Predictions]
+        NEXT --- DISP
+    end
+
     subgraph Browser ["Browser UI (Frontend)"]
         UI[Web Dashboard Page] <-->|Socket.IO| SIO[Socket.IO Client]
         UI -->|Charts| CHARTS[Real-time Scrolling Charts]
@@ -49,6 +55,7 @@ graph TD
     BROKER <-->|crossing/status & predictions| MLPRED
     BROKER -->|crossing/#| LOGGER
     LOGGER -->|Writes events| SQL
+    BROKER <-->|"MQTT Topics (Events & Predictions)"| NEXT
 ```
 
 ---
