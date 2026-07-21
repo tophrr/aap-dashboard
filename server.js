@@ -4,12 +4,16 @@ const { Server } = require('socket.io');
 const { SerialPort } = require('serialport');
 const mqtt = require('mqtt');
 const dgram = require('dgram');
+const fs = require('fs');
+const path = require('path');
+const multer = require('multer');
 const {
   PORT,
   UDP_PORT,
   MQTT_BROKER,
   MQTT_USERNAME,
-  MQTT_PASSWORD
+  MQTT_PASSWORD,
+  OTA_TOKEN
 } = require('./config');
 
 const app = express();
@@ -17,6 +21,54 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 app.use(express.static('public'));
+
+// ── OTA Upload Configuration ──────────────────────────────
+const firmwareDir = path.join(__dirname, 'public', 'firmware');
+if (!fs.existsSync(firmwareDir)) {
+  fs.mkdirSync(firmwareDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, firmwareDir);
+  },
+  filename: (req, file, cb) => {
+    cb(null, 'update.bin'); // Always overwrite the same file to save space
+  }
+});
+const upload = multer({ storage: storage });
+
+app.post('/api/ota/upload', upload.single('firmware'), (req, res) => {
+  const token = req.body.token;
+  const origin = req.body.origin;
+
+  if (token !== OTA_TOKEN) {
+    return res.status(403).json({ error: 'Invalid OTA token' });
+  }
+
+  if (!req.file) {
+    return res.status(400).json({ error: 'No firmware file uploaded' });
+  }
+
+  // Construct download URL
+  const downloadUrl = `${origin}/firmware/update.bin`;
+
+  // Trigger MQTT
+  if (mqttClient && mqttClient.connected) {
+    const payload = JSON.stringify({
+      url: downloadUrl,
+      token: token
+    });
+    mqttClient.publish('crossing/ota/trigger', payload);
+    io.emit('event_log', {
+      time: new Date().toLocaleTimeString(),
+      text: `[OTA] Triggered OTA update. File: update.bin`
+    });
+    res.json({ success: true, message: 'Upload successful, OTA triggered' });
+  } else {
+    res.status(503).json({ error: 'MQTT not connected, cannot trigger OTA' });
+  }
+});
 
 // ── State ─────────────────────────────────────────────────
 let serialPort = null;

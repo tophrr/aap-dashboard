@@ -45,11 +45,13 @@ const MQTT_BROKER = brokerUrl;
 
 const MQTT_USERNAME = getArgValue('mqtt-username') || process.env.MQTT_USERNAME || null;
 const MQTT_PASSWORD = getArgValue('mqtt-password') || process.env.MQTT_PASSWORD || null;
+const OTA_TOKEN = getArgValue('ota-token') || process.env.OTA_TOKEN || 'default_secret_token';
 
 module.exports = {
   PORT,
   UDP_PORT,
   MQTT_BROKER,
   MQTT_USERNAME,
-  MQTT_PASSWORD
+  MQTT_PASSWORD,
+  OTA_TOKEN
 };

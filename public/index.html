@@ -183,6 +183,7 @@
       <button class="tab-btn" id="tab-btn-other">System Settings</button>
       <button class="tab-btn" id="tab-btn-status">Status &amp; Telemetry</button>
       <button class="tab-btn" id="tab-btn-sim">Simulator</button>
+      <button class="tab-btn" id="tab-btn-ota">Remote OTA</button>
       <div style="margin-left:auto; display:flex; gap:8px; align-items:center; padding-bottom:4px;">
         <label style="display:flex; align-items:center; gap:4px; font-size:11px; margin-right:8px; cursor:pointer; color:#94a3b8; user-select:none;">
           <input type="checkbox" id="header-debug-enabled" style="width:14px; height:14px; accent-color:#4ade80; cursor:pointer;">
@@ -201,6 +202,36 @@
     <div class="tab-content active" id="tab-fsm"></div>
     <div class="tab-content" id="tab-dsp"></div>
     <div class="tab-content" id="tab-other"></div>
+
+    <!-- Remote OTA tab -->
+    <div class="tab-content" id="tab-ota">
+      <div style="padding: 16px 20px; background: #1a1a2e; border: 1px solid #0f3460; border-radius: 6px; width: 600px; box-sizing: border-box;">
+        <h2 style="font-size: 14px; color: #e0e0e0; margin: 0 0 4px 0;">Remote OTA Update</h2>
+        
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; gap: 20px; align-items: flex-start;">
+            <div style="display: flex; flex-direction: column; gap: 4px; flex: 3;">
+              <label style="font-size: 11px; color: #94a3b8;">Firmware Binary (.bin)</label>
+              <input type="file" id="ota-file" accept=".bin" style="font-size: 12px; color: #e0e0e0; width: 100%;">
+            </div>
+            
+            <div style="display: flex; flex-direction: column; gap: 4px; flex: 2;">
+              <label style="font-size: 11px; color: #94a3b8;">OTA Security Token</label>
+              <input type="password" id="ota-token" style="background: #111a30; border: 1px solid #0f3460; color: #4ade80; border-radius: 4px; padding: 6px 8px; font-size: 12px; outline: none; width: 100%; box-sizing: border-box;">
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 12px; margin-top: 0px;">
+            <button id="btn-ota-upload" class="btn" style="background: #166534; border-color: #22c55e; padding: 8px 16px; font-size: 12px; font-weight: bold;">Upload & Flash</button>
+            <span id="ota-status-msg" style="font-size: 11px; color: #94a3b8;"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+
+
     <!-- Status & Telemetry tab -->
     <div class="telemetry-tab" id="tab-status">
       <!-- Heartbeat status bar -->
@@ -250,11 +281,28 @@
               Generates 1253Hz and 662Hz signals with a 600ms on/off rhythmic pattern.
             </p>
           </div>
-          <div style="width: 100%; display: flex; flex-direction: column; gap: 4px;">
-            <label style="font-size: 11px; color: #94a3b8; display: flex; justify-content: space-between;">
-              Volume <span id="sim-vol-val">50%</span>
-            </label>
-            <input type="range" id="sim-volume" min="0" max="1" step="0.01" value="0.5" style="width: 100%;">
+          <div style="width: 100%; display: flex; flex-direction: column; gap: 12px;">
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <label style="font-size: 11px; color: #94a3b8; display: flex; justify-content: space-between;">
+                Volume <span id="sim-vol-val">50%</span>
+              </label>
+              <input type="range" id="sim-volume" min="0" max="1" step="0.01" value="0.5" style="width: 100%;">
+            </div>
+            
+            <div style="display: flex; gap: 12px; width: 100%;">
+              <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+                <label style="font-size: 11px; color: #94a3b8; display: flex; justify-content: space-between;">
+                  On Duration <span id="sim-on-val">600ms</span>
+                </label>
+                <input type="range" id="sim-on-duration" min="100" max="2000" step="50" value="600" style="width: 100%;">
+              </div>
+              <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+                <label style="font-size: 11px; color: #94a3b8; display: flex; justify-content: space-between;">
+                  Off Duration <span id="sim-off-val">600ms</span>
+                </label>
+                <input type="range" id="sim-off-duration" min="100" max="2000" step="50" value="600" style="width: 100%;">
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1036,7 +1084,8 @@
       dsp: document.getElementById('tab-btn-dsp'),
       other: document.getElementById('tab-btn-other'),
       status: document.getElementById('tab-btn-status'),
-      sim: document.getElementById('tab-btn-sim')
+      sim: document.getElementById('tab-btn-sim'),
+      ota: document.getElementById('tab-btn-ota')
     };
 
     const tabContents = {
@@ -1044,7 +1093,8 @@
       dsp:    document.getElementById('tab-dsp'),
       other:  document.getElementById('tab-other'),
       status: document.getElementById('tab-status'),
-      sim:    document.getElementById('tab-sim')
+      sim:    document.getElementById('tab-sim'),
+      ota:    document.getElementById('tab-ota')
     };
 
     function switchTab(tabName) {
@@ -1079,6 +1129,10 @@
     const simIndicator = document.getElementById('sim-indicator');
     const simVolume = document.getElementById('sim-volume');
     const simVolVal = document.getElementById('sim-vol-val');
+    const simOnDuration = document.getElementById('sim-on-duration');
+    const simOnVal = document.getElementById('sim-on-val');
+    const simOffDuration = document.getElementById('sim-off-duration');
+    const simOffVal = document.getElementById('sim-off-val');
 
     if (simVolume) {
       simVolume.addEventListener('input', (e) => {
@@ -1087,6 +1141,39 @@
           simGain.gain.setValueAtTime(parseFloat(e.target.value), simAudioCtx.currentTime);
         }
       });
+    }
+
+    if (simOnDuration) {
+      simOnDuration.addEventListener('input', (e) => {
+        simOnVal.textContent = e.target.value + 'ms';
+      });
+    }
+
+    if (simOffDuration) {
+      simOffDuration.addEventListener('input', (e) => {
+        simOffVal.textContent = e.target.value + 'ms';
+      });
+    }
+
+    let simTimeout = null;
+
+    function runSimLoop() {
+      if (!isSimRunning) return;
+      
+      isSimPulseOn = !isSimPulseOn;
+      if (isSimPulseOn) {
+        simGain.gain.setValueAtTime(parseFloat(simVolume.value), simAudioCtx.currentTime);
+        simStatus.textContent = 'Status: Pulse ON';
+        simIndicator.style.background = '#4ade80';
+        simIndicator.style.boxShadow = '0 0 8px #4ade80';
+        simTimeout = setTimeout(runSimLoop, parseInt(simOnDuration.value));
+      } else {
+        simGain.gain.setValueAtTime(0, simAudioCtx.currentTime);
+        simStatus.textContent = 'Status: Pulse OFF';
+        simIndicator.style.background = '#4b5563';
+        simIndicator.style.boxShadow = 'none';
+        simTimeout = setTimeout(runSimLoop, parseInt(simOffDuration.value));
+      }
     }
 
     function toggleSimulator() {
@@ -1114,6 +1201,7 @@
         simOsc2.connect(simGain);
         simOsc2.start();
 
+        isSimRunning = true;
         isSimPulseOn = true;
         const currentVol = parseFloat(simVolume.value);
         simGain.gain.setValueAtTime(currentVol, simAudioCtx.currentTime); // Turn on immediately
@@ -1121,32 +1209,18 @@
         simIndicator.style.background = '#4ade80';
         simIndicator.style.boxShadow = '0 0 8px #4ade80';
         
-        simInterval = setInterval(() => {
-          isSimPulseOn = !isSimPulseOn;
-          if (isSimPulseOn) {
-            simGain.gain.setValueAtTime(parseFloat(simVolume.value), simAudioCtx.currentTime);
-            simStatus.textContent = 'Status: Pulse ON';
-            simIndicator.style.background = '#4ade80';
-            simIndicator.style.boxShadow = '0 0 8px #4ade80';
-          } else {
-            simGain.gain.setValueAtTime(0, simAudioCtx.currentTime);
-            simStatus.textContent = 'Status: Pulse OFF';
-            simIndicator.style.background = '#4b5563';
-            simIndicator.style.boxShadow = 'none';
-          }
-        }, 600);
+        simTimeout = setTimeout(runSimLoop, parseInt(simOnDuration.value));
 
-        isSimRunning = true;
         btnSimText.textContent = 'Stop Simulation';
         btnSimToggle.style.background = '#b91c1c';
         btnSimToggle.style.borderColor = '#ef4444';
       } else {
-        clearInterval(simInterval);
+        isSimRunning = false;
+        clearTimeout(simTimeout);
         if (simOsc1) simOsc1.stop();
         if (simOsc2) simOsc2.stop();
         if (simGain) simGain.disconnect();
         
-        isSimRunning = false;
         btnSimText.textContent = 'Start Simulation';
         btnSimToggle.style.background = '#166534';
         btnSimToggle.style.borderColor = '#22c55e';
@@ -1158,6 +1232,66 @@
 
     if (btnSimToggle) {
       btnSimToggle.addEventListener('click', toggleSimulator);
+    }
+
+    // ── Remote OTA Logic ───────────────────────────────────
+    const btnOtaUpload = document.getElementById('btn-ota-upload');
+    if (btnOtaUpload) {
+      btnOtaUpload.addEventListener('click', async () => {
+        const fileInput = document.getElementById('ota-file');
+        const tokenInput = document.getElementById('ota-token');
+        const statusMsg = document.getElementById('ota-status-msg');
+        
+        if (!fileInput.files || fileInput.files.length === 0) {
+          statusMsg.textContent = 'Please select a .bin file.';
+          statusMsg.style.color = '#f87171';
+          return;
+        }
+
+        const file = fileInput.files[0];
+        const token = tokenInput.value;
+
+        if (!token) {
+          statusMsg.textContent = 'Please enter the OTA token.';
+          statusMsg.style.color = '#f87171';
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append('firmware', file);
+        formData.append('token', token);
+        formData.append('origin', window.location.origin);
+
+        btnOtaUpload.disabled = true;
+        btnOtaUpload.textContent = 'Uploading...';
+        statusMsg.textContent = 'Uploading to dashboard...';
+        statusMsg.style.color = '#e0e0e0';
+
+        try {
+          const response = await fetch('/api/ota/upload', {
+            method: 'POST',
+            body: formData
+          });
+
+          const result = await response.json();
+
+          if (response.ok) {
+            statusMsg.textContent = 'Success! OTA triggered via MQTT.';
+            statusMsg.style.color = '#4ade80';
+            tokenInput.value = ''; // clear token
+            fileInput.value = ''; // clear file
+          } else {
+            statusMsg.textContent = `Error: ${result.error || 'Upload failed'}`;
+            statusMsg.style.color = '#f87171';
+          }
+        } catch (error) {
+          statusMsg.textContent = `Error: ${error.message}`;
+          statusMsg.style.color = '#f87171';
+        } finally {
+          btnOtaUpload.disabled = false;
+          btnOtaUpload.textContent = 'Upload & Flash';
+        }
+      });
     }
 
     // ── Helper: gather current form parameters ─────────────
