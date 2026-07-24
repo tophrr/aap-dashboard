@@ -29,11 +29,11 @@ class MLState:
     def __init__(self):
         self.wait_time_model = compose.Pipeline(
             preprocessing.StandardScaler(),
-            tree.HoeffdingTreeRegressor()
+            tree.HoeffdingTreeRegressor(grace_period=20)
         )
         self.duration_model = compose.Pipeline(
             preprocessing.StandardScaler(),
-            tree.HoeffdingTreeRegressor()
+            tree.HoeffdingTreeRegressor(grace_period=20)
         )
         
         self.previous_features = None
@@ -142,9 +142,9 @@ def on_message(client, userdata, msg):
             if state.ema_wait is not None and state.ema_duration is not None:
                 if VERBOSE:
                     print(f"[DEBUG] Raw ML Pred: Wait={pred_wait:.1f}, Dur={pred_dur:.1f} | EMA: Wait={state.ema_wait:.1f}, Dur={state.ema_duration:.1f}")
-                if state.sample_count < 100:
+                if state.sample_count < 30:
                     if VERBOSE:
-                        print(f"[DEBUG] Fallback: Sample count {state.sample_count} < 100. Using EMA.")
+                        print(f"[DEBUG] Fallback: Sample count {state.sample_count} < 30. Using EMA.")
                     final_wait = state.ema_wait
                     final_dur = state.ema_duration
                 else:
@@ -170,7 +170,7 @@ def on_message(client, userdata, msg):
             prediction_payload = {
                 "predicted_next_wait_time": final_wait,
                 "predicted_next_duration": final_dur,
-                "ml_active": state.sample_count >= 100
+                "ml_active": state.sample_count >= 30
             }
             
             print(f"[{datetime.now().isoformat()}] Predicted next wait: {final_wait}s, duration: {final_dur}s")
