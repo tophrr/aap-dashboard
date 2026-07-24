@@ -4,6 +4,7 @@ import math
 import pickle
 import argparse
 import sqlite3
+import threading
 from datetime import datetime
 from urllib.parse import urlparse
 from dotenv import load_dotenv
@@ -25,6 +26,7 @@ MQTT_PASSWORD = os.getenv('MQTT_PASSWORD', None)
 
 STATE_FILE = os.path.join(script_dir, 'model_state.pkl')
 EMA_ALPHA = 0.1
+DEBOUNCE_THRESHOLD = 15.0
 VERBOSE = os.getenv('VERBOSE', '0') == '1'
 
 class MLState:
@@ -43,6 +45,7 @@ class MLState:
         self.sample_count = 0
         self.ema_wait = None
         self.ema_duration = None
+        self.pending_event = None  # Buffer for fragmented events
 
 def extract_features(timestamp, prev_duration, prev_wait_time):
     dt = datetime.fromtimestamp(timestamp)
@@ -62,7 +65,10 @@ def load_state():
     if os.path.exists(STATE_FILE):
         try:
             with open(STATE_FILE, 'rb') as f:
-                return pickle.load(f)
+                loaded = pickle.load(f)
+                if not hasattr(loaded, 'pending_event'):
+                    loaded.pending_event = None
+                return loaded
         except Exception as e:
             print(f"Error loading state, starting fresh: {e}")
     return MLState()
@@ -75,6 +81,65 @@ def save_state(state):
         print(f"Error saving state: {e}")
 
 state = None
+pending_timer = None
+
+def cancel_pending_timer():
+    global pending_timer
+    if pending_timer is not None:
+        pending_timer.cancel()
+        pending_timer = None
+
+def commit_pending_event(state_obj, save_to_disk=True):
+    if state_obj.pending_event is None:
+        return
+        
+    pe = state_obj.pending_event
+    duration = pe["duration"]
+    probing_started_at = pe["probing_started_at"]
+    ended_at = pe["ended_at"]
+    
+    current_wait_time = 0.0
+    if state_obj.previous_ended_at is not None:
+        current_wait_time = probing_started_at - state_obj.previous_ended_at
+        
+        # Update EMAs
+        if state_obj.ema_wait is None:
+            state_obj.ema_wait = current_wait_time
+            state_obj.ema_duration = duration
+        else:
+            state_obj.ema_wait = (EMA_ALPHA * current_wait_time) + ((1 - EMA_ALPHA) * state_obj.ema_wait)
+            state_obj.ema_duration = (EMA_ALPHA * duration) + ((1 - EMA_ALPHA) * state_obj.ema_duration)
+            
+        state_obj.sample_count += 1
+        
+        # Learn
+        if state_obj.previous_features is not None:
+            if VERBOSE:
+                print(f"[DEBUG] Training models. Actual Wait={current_wait_time:.1f}, Actual Duration={duration:.1f}")
+            state_obj.wait_time_model.learn_one(state_obj.previous_features, current_wait_time)
+            state_obj.duration_model.learn_one(state_obj.previous_features, duration)
+            
+    # Extract features for the NEXT prediction
+    state_obj.previous_features = extract_features(ended_at, duration, current_wait_time)
+    state_obj.previous_ended_at = ended_at
+    state_obj.pending_event = None
+    
+    if save_to_disk:
+        save_state(state_obj)
+
+def timer_commit(client):
+    global state
+    if state.pending_event is not None:
+        if VERBOSE:
+            print(f"[DEBUG] Timer expired. Committing pending event: duration={state.pending_event['duration']:.1f}s")
+        commit_pending_event(state, save_to_disk=True)
+
+def schedule_pending_commit(client):
+    global pending_timer
+    cancel_pending_timer()
+    pending_timer = threading.Timer(DEBOUNCE_THRESHOLD + 1.0, timer_commit, args=[client])
+    pending_timer.daemon = True
+    pending_timer.start()
 
 def process_event(payload, publish_prediction=True, save_to_disk=True, client=None):
     global state
@@ -89,44 +154,41 @@ def process_event(payload, publish_prediction=True, save_to_disk=True, client=No
         if VERBOSE:
             print(f"\n[DEBUG] Event Payload: duration={duration}, wait_start={probing_started_at}, wait_end={ended_at}")
         
-        # Step A: Calculate ground truth for the previous prediction
-        current_wait_time = 0.0
-        if state.previous_ended_at is not None:
-            # Wait time is time from PREVIOUS end to CURRENT start
-            current_wait_time = probing_started_at - state.previous_ended_at
-            
-            # Update EMAs
-            if state.ema_wait is None:
-                state.ema_wait = current_wait_time
-                state.ema_duration = duration
-            else:
-                state.ema_wait = (EMA_ALPHA * current_wait_time) + ((1 - EMA_ALPHA) * state.ema_wait)
-                state.ema_duration = (EMA_ALPHA * duration) + ((1 - EMA_ALPHA) * state.ema_duration)
-            
-            state.sample_count += 1
-            
-            # Step B: Learn (Self-Correct)
-            if state.previous_features is not None:
+        # Check if this is a fragment of the pending event
+        is_fragment = False
+        if state.pending_event is not None:
+            gap = probing_started_at - state.pending_event["ended_at"]
+            if gap < DEBOUNCE_THRESHOLD:
+                is_fragment = True
+                cancel_pending_timer()
+                
+                # Merge into pending_event
+                state.pending_event["ended_at"] = ended_at
+                state.pending_event["duration"] = ended_at - state.pending_event["probing_started_at"]
                 if VERBOSE:
-                    print(f"[DEBUG] Training models. Actual Wait={current_wait_time:.1f}, Actual Duration={duration:.1f}")
-                state.wait_time_model.learn_one(state.previous_features, current_wait_time)
-                state.duration_model.learn_one(state.previous_features, duration)
+                    print(f"[DEBUG] Fragmented event detected. Wait={gap:.1f}s < {DEBOUNCE_THRESHOLD}s. Merging. New pending duration={state.pending_event['duration']:.1f}s")
+        
+        if not is_fragment:
+            # If there was an old pending event that is NOT a fragment, commit it now
+            if state.pending_event is not None:
+                cancel_pending_timer()
+                commit_pending_event(state, save_to_disk=save_to_disk)
+                
+            # Create new pending event
+            state.pending_event = {
+                "probing_started_at": probing_started_at,
+                "ended_at": ended_at,
+                "duration": duration
+            }
 
-        # Step C: Extract Current Features
-        # We use `ended_at` as the timestamp for the current context.
-        current_features = extract_features(ended_at, duration, current_wait_time)
-        
-        # Store state for next time
-        state.previous_features = current_features
-        state.previous_ended_at = ended_at
-        
-        # Save state to disk if requested
-        if save_to_disk:
-            save_state(state)
-        
-        # Step D: Predict the FUTURE
-        pred_wait = state.wait_time_model.predict_one(current_features)
-        pred_dur = state.duration_model.predict_one(current_features)
+        # Step D: Predict the FUTURE (preliminary prediction, published immediately)
+        features_to_predict = state.previous_features
+        if features_to_predict is None:
+            # First run fallback features
+            features_to_predict = extract_features(ended_at, duration, 0.0)
+            
+        pred_wait = state.wait_time_model.predict_one(features_to_predict)
+        pred_dur = state.duration_model.predict_one(features_to_predict)
         
         # Fallback logic
         final_wait = pred_wait
@@ -169,6 +231,9 @@ def process_event(payload, publish_prediction=True, save_to_disk=True, client=No
             
             print(f"[{datetime.now().isoformat()}] Predicted next wait: {final_wait}s, duration: {final_dur}s")
             client.publish("crossing/predictions", json.dumps(prediction_payload))
+            
+            # Schedule commit
+            schedule_pending_commit(client)
 
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
@@ -227,6 +292,13 @@ if __name__ == '__main__':
                 except json.JSONDecodeError:
                     pass
             
+            # Commit the final pending event if any
+            if state.pending_event is not None:
+                if VERBOSE:
+                    print(f"[DEBUG] Committing final catchup event: duration={state.pending_event['duration']:.1f}s")
+                commit_pending_event(state, save_to_disk=False)
+                processed_any = True
+                
             if processed_any:
                 save_state(state)
                 print(f"Caught up on historical logs. New sample count: {state.sample_count}")
@@ -253,6 +325,10 @@ if __name__ == '__main__':
         client.loop_forever()
     except KeyboardInterrupt:
         print("\nExiting ML Predictor...")
+        cancel_pending_timer()
+        if state is not None and state.pending_event is not None:
+            print(f"[DEBUG] Committing remaining pending event on exit: duration={state.pending_event['duration']:.1f}s")
+            commit_pending_event(state, save_to_disk=True)
         client.disconnect()
     except Exception as e:
         print(f"Connection error: {e}")
